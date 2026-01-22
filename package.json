@@ -66,7 +66,7 @@
     "@turf/helpers": "^7.2.0",
     "@types/lodash": "^4.17.14",
     "axios": "^1.13.2",
-    "lodash": "^4.17.21",
+    "lodash": "^4.17.23",
     "map-transform": "^0.3.12",
     "moment": "^2.30.1",
     "nodemon": "^3.1.9",
