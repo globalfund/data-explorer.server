@@ -64,6 +64,7 @@
     "@loopback/rest-explorer": "^7.0.10",
     "@loopback/security": "^0.12.6",
     "@loopback/service-proxy": "^7.0.10",
+    "@rawgraphs/rawgraphs-core": "^1.0.0-beta.17",
     "@turf/center": "^7.2.0",
     "@turf/helpers": "^7.2.0",
     "@types/lodash": "^4.17.14",
