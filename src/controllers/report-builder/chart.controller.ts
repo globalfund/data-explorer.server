@@ -174,7 +174,7 @@ export class ChartController {
       userId,
       body,
       process.env.PARSED_DATA_FILES_PATH ??
-        '../rb-core-backend/parsed-data-files/',
+        '../data-exporer.backend/parsed-data-files/',
     );
   }
 

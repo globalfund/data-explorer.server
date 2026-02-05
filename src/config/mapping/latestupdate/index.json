@@ -12,6 +12,10 @@
       "datasetLabel": "GrantBudget_ReferenceRate"
     },
     {
+      "name": "commitments",
+      "datasetLabel": "Commitment_ReferenceRate"
+    },
+    {
       "name": "disbursements",
       "datasetLabel": "Disbursement_ReferenceRate"
     },
@@ -22,6 +26,10 @@
     {
       "name": "expenditures",
       "datasetLabel": "Expenditure_InvestmentLandscape_ReferenceRate"
+    },
+    {
+      "name": "expenditures (modules & interventions)",
+      "datasetLabel": "Expenditure_Intervention_ReferenceRate"
     },
     {
       "name": "funding_requests",
@@ -42,6 +50,10 @@
     {
       "name": "results",
       "datasetLabel": "Annual_Results"
+    },
+    {
+      "name": "targets-results",
+      "datasetLabel": "IMPLEMENTATION_PERIOD_TARGETS_RESULTS"
     }
   ]
 }

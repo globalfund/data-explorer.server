@@ -12,14 +12,6 @@ import axios, {AxiosResponse} from 'axios';
 import {handleDataApiError} from '../utils/dataApiError';
 import {renderChartData} from '../utils/renderChart';
 
-let host = process.env.BACKEND_SUBDOMAIN
-  ? 'data-explorer-backend'
-  : 'localhost';
-if (process.env.ENV_TYPE !== 'prod')
-  host = process.env.ENV_TYPE
-    ? `data-explorer-backend-${process.env.ENV_TYPE}`
-    : host;
-
 export class ReportBuilderController {
   constructor(@inject(RestBindings.Http.REQUEST) private req: Request) {}
 
@@ -37,7 +29,7 @@ export class ReportBuilderController {
   @response(200)
   async getSampleGFDataset(@param.path.string('datasetId') datasetId: string) {
     return axios
-      .get(`http://${host}:5000/sample-data/${datasetId}`, {
+      .get(`${process.env.BACKEND_API_BASE_URL}/sample-data/${datasetId}`, {
         headers: {
           Authorization: 'ZIMMERMAN',
         },
@@ -56,7 +48,7 @@ export class ReportBuilderController {
     @param.query.number('page') page: number,
   ) {
     return axios
-      .get(`http://${host}:5000/dataset/${datasetId}`, {
+      .get(`${process.env.BACKEND_API_BASE_URL}/dataset/${datasetId}`, {
         headers: {
           Authorization: 'ZIMMERMAN',
         },
