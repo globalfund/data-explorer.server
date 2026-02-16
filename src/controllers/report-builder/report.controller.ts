@@ -193,7 +193,7 @@ export class ReportController {
     this.logger.info(
       `ReportController - deleteById - Deleting report ${id} for user ${userId}`,
     );
-    return this.reportService.deleteById(id, userId);
+    return this.reportService.deleteById(userId, id);
   }
 
   @get('/report/duplicate/{id}')
