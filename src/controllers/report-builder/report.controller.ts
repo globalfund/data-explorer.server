@@ -213,6 +213,6 @@ export class ReportController {
     this.logger.info(
       `ReportController - duplicate - Duplicating report ${id} for user ${userId}`,
     );
-    return this.reportService.duplicate(id, userId);
+    return this.reportService.duplicate(userId, id);
   }
 }
