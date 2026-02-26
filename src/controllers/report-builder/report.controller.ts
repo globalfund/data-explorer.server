@@ -32,12 +32,10 @@ export class ReportController {
     this.logger.info('ReportController - dummy - Dummy endpoint called');
     return this.reportService.create('dummy-user', {
       name: 'Dummy Report',
-      title: 'Dummy Report Title',
       description: 'This is a dummy report',
-      rows: [],
+      items: [],
       public: false,
       baseline: false,
-      backgroundColor: '#FFFFFF',
       owner: 'dummy-user',
       updatedDate: new Date().toISOString(),
       createdDate: new Date().toISOString(),
