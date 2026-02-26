@@ -14,10 +14,13 @@ import {
   response,
   RestBindings,
 } from '@loopback/rest';
+import axios, {AxiosResponse} from 'axios';
 import _ from 'lodash';
 import {ReportModel} from 'rb-core-middleware/dist/models';
 import {ReportService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
+import {handleDataApiError} from '../../utils/dataApiError';
+import {renderChartData} from '../../utils/renderChart';
 
 export class ReportController {
   constructor(
@@ -25,6 +28,16 @@ export class ReportController {
     @inject('services.logger') private logger: Logger,
     @inject('services.ReportService') private reportService: ReportService,
   ) {}
+
+  @post('/report/render-chart-data')
+  @response(200)
+  async renderChart(@requestBody() body: any) {
+    try {
+      return await renderChartData(body);
+    } catch (e) {
+      handleDataApiError(e);
+    }
+  }
 
   @get('/report/dummy')
   @response(200)
@@ -212,5 +225,43 @@ export class ReportController {
       `ReportController - duplicate - Duplicating report ${id} for user ${userId}`,
     );
     return this.reportService.duplicate(userId, id);
+  }
+
+  @get('/report-builder/gf-sample-dataset/{datasetId}')
+  @response(200)
+  async getSampleGFDataset(@param.path.string('datasetId') datasetId: string) {
+    return axios
+      .get(`${process.env.BACKEND_API_BASE_URL}/sample-data/${datasetId}`, {
+        headers: {
+          Authorization: 'ZIMMERMAN',
+        },
+      })
+      .then((resp: AxiosResponse) => {
+        return {data: resp.data};
+      })
+      .catch(handleDataApiError);
+  }
+
+  @get('/report-builder/gf-dataset/{datasetId}')
+  @response(200)
+  async getGFDataset(
+    @param.path.string('datasetId') datasetId: string,
+    @param.query.number('pageSize') pageSize: number,
+    @param.query.number('page') page: number,
+  ) {
+    return axios
+      .get(`${process.env.BACKEND_API_BASE_URL}/dataset/${datasetId}`, {
+        headers: {
+          Authorization: 'ZIMMERMAN',
+        },
+        params: {
+          page: page,
+          page_size: pageSize,
+        },
+      })
+      .then((resp: AxiosResponse) => {
+        return {data: resp.data};
+      })
+      .catch(handleDataApiError);
   }
 }
