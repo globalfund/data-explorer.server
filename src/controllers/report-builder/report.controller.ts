@@ -45,6 +45,7 @@ export class ReportController {
     this.logger.info('ReportController - dummy - Dummy endpoint called');
     return this.reportService.create('dummy-user', {
       name: 'Dummy Report',
+      nameLower: 'dummy report',
       description: 'This is a dummy report',
       items: [],
       public: false,
