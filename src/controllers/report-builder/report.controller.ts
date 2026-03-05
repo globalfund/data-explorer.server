@@ -234,7 +234,7 @@ export class ReportController {
     return axios
       .get(`${process.env.BACKEND_API_BASE_URL}/sample-data/${datasetId}`, {
         headers: {
-          Authorization: 'ZIMMERMAN',
+          Authorization: process.env.GF_BACKEND_API_KEY,
         },
       })
       .then((resp: AxiosResponse) => {
@@ -253,7 +253,7 @@ export class ReportController {
     return axios
       .get(`${process.env.BACKEND_API_BASE_URL}/dataset/${datasetId}`, {
         headers: {
-          Authorization: 'ZIMMERMAN',
+          Authorization: process.env.GF_BACKEND_API_KEY,
         },
         params: {
           page: page,

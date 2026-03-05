@@ -1,5 +1,8 @@
 import {inject, lifeCycleObserver, LifeCycleObserver} from '@loopback/core';
 import {juggler} from '@loopback/repository';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 export const DbDataSourceConfig = {
   name: 'DbDataSource',
@@ -11,6 +14,7 @@ export const DbDataSourceConfig = {
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'data-explorer-rb-db',
   useNewUrlParser: true,
+  authSource: process.env.DB_AUTHSOURCE || 'admin',
 };
 
 // Observe application's life cycle to disconnect the datasource when
