@@ -10,7 +10,6 @@ import TableFieldsMapping from '../config/mapping/disbursements/table.json';
 import FinancialInsightsStatsMapping from '../config/mapping/financialInsightsStats.json';
 import urls from '../config/urls/index.json';
 import {BudgetSankeyChartData} from '../interfaces/budgetSankey';
-import CycleMapping from '../static-assets/cycle-mapping.json';
 import {handleDataApiError} from '../utils/dataApiError';
 import {filterFinancialIndicators} from '../utils/filtering/financialIndicators';
 
@@ -730,12 +729,23 @@ export class DisbursementsController {
 
     return axios
       .get(url)
-      .then((resp: AxiosResponse) => {
+      .then(async (resp: AxiosResponse) => {
         const rawData = _.get(
           resp.data,
           DisbursementsCyclesMapping.dataPath,
           [],
         );
+
+        const cmsResponse = await axios.get(
+          `${process.env.CMS_API}/pages-home?locale=en`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.CMS_TOKEN}`,
+            },
+          },
+        );
+
+        const chartCycles = _.get(cmsResponse, 'data.data.chartCycles', []);
 
         const data = _.map(
           _.filter(
@@ -753,7 +763,7 @@ export class DisbursementsController {
               value = `${from} - ${to}`;
             }
 
-            const name = _.find(CycleMapping, {value})?.name ?? value;
+            const name = _.find(chartCycles, {value})?.name ?? value;
 
             return {
               name,

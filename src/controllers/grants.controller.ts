@@ -510,7 +510,7 @@ export class GrantsController {
                   node => node.name === cat3 && node.level === 3,
                 );
                 if (existingCategoryIndex === -1) {
-                  const name1 = `${cat3}${sameLevel1Or2Category ? ' (1)' : ''}`;
+                  const name1 = `${cat3}${sameLevel1Or2Category ? ' (2)' : ''}`;
                   data.nodes.push({
                     name: name1,
                     level: 3,

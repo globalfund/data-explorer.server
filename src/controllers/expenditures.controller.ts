@@ -8,7 +8,6 @@ import ExpendituresCyclesMapping from '../config/mapping/expenditures/cycles.jso
 import ExpendituresHeatmapMapping from '../config/mapping/expenditures/heatmap.json';
 import ExpendituresTableMapping from '../config/mapping/expenditures/table.json';
 import urls from '../config/urls/index.json';
-import CycleMapping from '../static-assets/cycle-mapping.json';
 import {handleDataApiError} from '../utils/dataApiError';
 import {filterFinancialIndicators} from '../utils/filtering/financialIndicators';
 
@@ -433,12 +432,23 @@ export class ExpendituresController {
 
     return axios
       .get(url)
-      .then((resp: AxiosResponse) => {
+      .then(async (resp: AxiosResponse) => {
         const rawData = _.get(
           resp.data,
           ExpendituresCyclesMapping.dataPath,
           [],
         );
+
+        const cmsResponse = await axios.get(
+          `${process.env.CMS_API}/pages-home?locale=en`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.CMS_TOKEN}`,
+            },
+          },
+        );
+
+        const chartCycles = _.get(cmsResponse, 'data.data.chartCycles', []);
 
         const data = _.map(rawData, item => {
           const from = _.get(item, ExpendituresCyclesMapping.cycleFrom, '');
@@ -450,7 +460,7 @@ export class ExpendituresController {
             value = `${from} - ${to}`;
           }
 
-          const name = _.find(CycleMapping, {value})?.name ?? value;
+          const name = _.find(chartCycles, {value})?.name ?? value;
 
           return {
             name,
