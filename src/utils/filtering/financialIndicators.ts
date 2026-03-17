@@ -1,6 +1,6 @@
+import axios from 'axios';
 import _ from 'lodash';
 import filtering from '../../config/filtering/index.json';
-import CycleMapping from '../../static-assets/cycle-mapping.json';
 import {GeographyFiltering} from './geographies';
 
 const MAPPING = {
@@ -53,10 +53,20 @@ export async function filterFinancialIndicators(
   let str = '';
 
   if (_.get(params, 'cycleNames', '')) {
+    const cmsResponse = await axios.get(
+      `${process.env.CMS_API}/pages-home?locale=en`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.CMS_TOKEN}`,
+        },
+      },
+    );
+    const chartCycles = _.get(cmsResponse, 'data.data.chartCycles', []);
+
     const cycles = _.get(params, 'cycleNames', '').split(',');
     const cycleValues = _.filter(
       cycles.map(
-        (cycle: string) => _.find(CycleMapping, {name: cycle})?.value ?? '',
+        (cycle: string) => _.find(chartCycles, {name: cycle})?.value ?? '',
       ),
       (c: string) => c.length > 0,
     );

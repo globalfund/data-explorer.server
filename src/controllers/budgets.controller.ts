@@ -11,7 +11,6 @@ import BudgetsTableFieldsMapping from '../config/mapping/budgets/table.json';
 import BudgetsTreemapFieldsMapping from '../config/mapping/budgets/treemap.json';
 import urls from '../config/urls/index.json';
 import {BudgetSankeyChartData} from '../interfaces/budgetSankey';
-import CycleMapping from '../static-assets/cycle-mapping.json';
 import {handleDataApiError} from '../utils/dataApiError';
 import {filterFinancialIndicators} from '../utils/filtering/financialIndicators';
 
@@ -453,8 +452,19 @@ export class BudgetsController {
 
     return axios
       .get(url)
-      .then((resp: AxiosResponse) => {
+      .then(async (resp: AxiosResponse) => {
         const rawData = _.get(resp.data, BudgetsCyclesMapping.dataPath, []);
+
+        const cmsResponse = await axios.get(
+          `${process.env.CMS_API}/pages-home?locale=en`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.CMS_TOKEN}`,
+            },
+          },
+        );
+
+        const chartCycles = _.get(cmsResponse, 'data.data.chartCycles', []);
 
         const data = _.orderBy(
           _.map(
@@ -473,7 +483,7 @@ export class BudgetsController {
                 value = `${from} - ${to}`;
               }
 
-              const name = _.find(CycleMapping, {value})?.name ?? value;
+              const name = _.find(chartCycles, {value})?.name ?? value;
 
               return {
                 name,
@@ -1271,8 +1281,19 @@ export class BudgetsController {
 
     return axios
       .get(url)
-      .then((resp: AxiosResponse) => {
+      .then(async (resp: AxiosResponse) => {
         const rawData = _.get(resp.data, BudgetsCyclesMapping.dataPath, []);
+
+        const cmsResponse = await axios.get(
+          `${process.env.CMS_API}/pages-home?locale=en`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.CMS_TOKEN}`,
+            },
+          },
+        );
+
+        const chartCycles = _.get(cmsResponse, 'data.data.chartCycles', []);
 
         const data = _.orderBy(
           _.map(
@@ -1291,7 +1312,7 @@ export class BudgetsController {
                 value = `${from} - ${to}`;
               }
 
-              const name = _.find(CycleMapping, {value})?.name ?? value;
+              const name = _.find(chartCycles, {value})?.name ?? value;
 
               return {
                 name,

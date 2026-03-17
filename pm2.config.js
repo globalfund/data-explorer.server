@@ -19,6 +19,7 @@ module.exports = {
       watch: true,
       ignore_watch: [
         '.git',
+        'logs',
         'public',
         '.circle',
         '.vscode',
