@@ -28,6 +28,8 @@ import {LoggerProvider} from './providers/logger.provider';
 
 dotenv.config();
 
+dotenv.config();
+
 export {ApplicationConfig};
 
 const RbCoreMiddlewareComponentConfig: RbCoreMiddlewareComponentOptions = {
