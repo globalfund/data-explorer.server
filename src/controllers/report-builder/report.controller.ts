@@ -15,6 +15,7 @@ import {
   RestBindings,
 } from '@loopback/rest';
 import axios, {AxiosResponse} from 'axios';
+import fs from 'fs/promises';
 import _ from 'lodash';
 import {ReportModel} from 'rb-core-middleware/dist/models';
 import {ReportService} from 'rb-core-middleware/dist/services';
@@ -103,7 +104,21 @@ export class ReportController {
     this.logger.info(
       `ReportController - create - Creating report for user ${userId}`,
     );
-    return this.reportService.create(userId, report);
+    const result = await this.reportService.create(userId, report);
+    const reportId = _.get(result, 'id');
+    if (reportId) {
+      try {
+        await fs.copyFile(
+          `./public/report-thumbnail/default.png`,
+          `./public/report-thumbnail/${reportId}.png`,
+        );
+      } catch (error) {
+        this.logger.info(
+          `ReportController - create - Default thumbnail not found, skipping thumbnail creation for report ${reportId}`,
+        );
+      }
+    }
+    return result;
   }
 
   @get('/reports')
@@ -205,6 +220,13 @@ export class ReportController {
     this.logger.info(
       `ReportController - deleteById - Deleting report ${id} for user ${userId}`,
     );
+    try {
+      await fs.unlink(`./public/report-thumbnail/${id}.png`);
+    } catch (error) {
+      this.logger.info(
+        `ReportController - deleteById - Thumbnail not found for report ${id}`,
+      );
+    }
     return this.reportService.deleteById(userId, id);
   }
 
@@ -225,7 +247,21 @@ export class ReportController {
     this.logger.info(
       `ReportController - duplicate - Duplicating report ${id} for user ${userId}`,
     );
-    return this.reportService.duplicate(userId, id);
+    const result = await this.reportService.duplicate(userId, id);
+    const newReportId = _.get(result, 'id');
+    if (newReportId) {
+      try {
+        await fs.copyFile(
+          `./public/report-thumbnail/${id}.png`,
+          `./public/report-thumbnail/${newReportId}.png`,
+        );
+      } catch (error) {
+        this.logger.info(
+          `ReportController - duplicate - Thumbnail not found for report ${id}, skipping thumbnail duplication`,
+        );
+      }
+    }
+    return result;
   }
 
   @get('/report-builder/gf-sample-dataset/{datasetId}')
