@@ -15,5 +15,6 @@ export * from './pledgescontributions.controller';
 export * from './report-builder/chart.controller';
 export * from './report-builder/dataset.controller';
 export * from './report-builder/file-upload.controller';
+export * from './report-builder/folder.controller';
 export * from './report-builder/report.controller';
 export * from './results.controller';
