@@ -11,6 +11,7 @@ import {
   put,
   Request,
   requestBody,
+  Response,
   response,
   RestBindings,
 } from '@loopback/rest';
@@ -20,12 +21,15 @@ import _ from 'lodash';
 import {ReportModel} from 'rb-core-middleware/dist/models';
 import {ReportService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
+import {reportQueue} from '../../queues/report.queue';
 import {handleDataApiError} from '../../utils/dataApiError';
+import {ExportFormat, exportReport} from '../../utils/exportReport';
 import {renderChartData} from '../../utils/renderChart';
 
 export class ReportController {
   constructor(
     @inject(RestBindings.Http.REQUEST) private req: Request,
+    @inject(RestBindings.Http.RESPONSE) private response: Response,
     @inject('services.logger') private logger: Logger,
     @inject('services.ReportService') private reportService: ReportService,
   ) {}
@@ -189,7 +193,27 @@ export class ReportController {
     this.logger.info(
       `ReportController - updateById - Updating report ${id} for user ${userId}`,
     );
-    return this.reportService.updateById(userId, id, report);
+    const updateResult = await this.reportService.updateById(
+      userId,
+      id,
+      report,
+    );
+    await reportQueue.add(
+      'screenshot-report',
+      {
+        reportId: id,
+      },
+      {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    );
+    return updateResult;
   }
 
   @put('/report/{id}')
@@ -300,5 +324,33 @@ export class ReportController {
         return {data: resp.data};
       })
       .catch(handleDataApiError);
+  }
+
+  @get('/report/{id}/export/{format}')
+  @response(200, {
+    description: 'ReportModel instance',
+    content: {
+      'application/json': {
+        schema: getModelSchemaRef(ReportModel, {includeRelations: true}),
+      },
+    },
+  })
+  // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
+  async exportReport(
+    @param.path.string('id') id: string,
+    @param.path.string('format') format: ExportFormat,
+  ) {
+    const result = await exportReport(id, format);
+
+    this.response.setHeader('Content-Type', result.mimeType);
+    this.response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.fileName}"`,
+    );
+    this.response.setHeader('Content-Length', result.data.length);
+
+    this.response.send(result.data);
+
+    return this.response;
   }
 }
