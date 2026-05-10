@@ -17,8 +17,8 @@ import {
 import axios, {AxiosResponse} from 'axios';
 import fs from 'fs/promises';
 import _ from 'lodash';
-import {ReportModel} from 'rb-core-middleware/dist/models';
-import {ReportService} from 'rb-core-middleware/dist/services';
+import {FolderModel, ReportModel} from 'rb-core-middleware/dist/models';
+import {FolderService, ReportService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
 import {handleDataApiError} from '../../utils/dataApiError';
 import {renderChartData} from '../../utils/renderChart';
@@ -28,6 +28,7 @@ export class ReportController {
     @inject(RestBindings.Http.REQUEST) private req: Request,
     @inject('services.logger') private logger: Logger,
     @inject('services.ReportService') private reportService: ReportService,
+    @inject('services.FolderService') private folderService: FolderService,
   ) {}
 
   @post('/report/render-chart-data')
@@ -38,47 +39,6 @@ export class ReportController {
     } catch (e) {
       handleDataApiError(e);
     }
-  }
-
-  @get('/report/dummy')
-  @response(200)
-  async dummy() {
-    this.logger.info('ReportController - dummy - Dummy endpoint called');
-    return this.reportService.create('dummy-user', {
-      name: 'Dummy Report',
-      nameLower: 'dummy report',
-      description: 'This is a dummy report',
-      items: [],
-      public: false,
-      baseline: false,
-      owner: 'dummy-user',
-      updatedDate: new Date().toISOString(),
-      createdDate: new Date().toISOString(),
-      settings: {
-        width: 800,
-        height: 600,
-        paddingLeft: 10,
-        paddingTop: 10,
-        paddingRight: 10,
-        paddingBottom: 10,
-        stroke: 0,
-        strokeColor: '#000000',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 0,
-      },
-      getId: function () {
-        return '';
-      },
-      getIdObject: function () {
-        return {};
-      },
-      toJSON: function () {
-        return {};
-      },
-      toObject: function () {
-        return {};
-      },
-    });
   }
 
   @post('/report')
@@ -136,11 +96,51 @@ export class ReportController {
   // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
   async find(
     @param.filter(ReportModel) filter?: Filter<ReportModel>,
-  ): Promise<ReportModel[]> {
+    @param.query.string('includeFolders') includeFolders?: boolean,
+    @param.filter(FolderModel) folderFilter?: Filter<FolderModel>,
+  ): Promise<
+    {
+      id: string;
+      name: string;
+      owner: string;
+      public: boolean;
+      description: string;
+      createdDate: string;
+      updatedDate: string;
+      isFolder?: boolean;
+      assetCount?: number;
+      reportCount?: number;
+    }[]
+  > {
     const userId = _.get(this.req, 'user.sub', 'anonymous');
     this.logger.info(
       `ReportController - find - Fetching reports for user ${userId}`,
     );
+    if (includeFolders) {
+      const reports = await this.reportService.find(userId, filter);
+      const folders = await this.folderService.find(userId, folderFilter);
+      const orderFilter = _.get(filter, 'order[0]', 'createdDate DESC');
+      const [orderByField, orderByDirection] = orderFilter.split(' ');
+      return _.orderBy(
+        [
+          ...reports,
+          ...folders.map(folder => ({
+            id: folder.id,
+            name: folder.name,
+            public: false,
+            owner: folder.owner,
+            createdDate: folder.createdDate,
+            updatedDate: folder.updatedDate,
+            description: '',
+            isFolder: true,
+            assetCount: folder.assets ? folder.assets.length : 0,
+            reportCount: folder.reports ? folder.reports.length : 0,
+          })),
+        ],
+        [orderByField],
+        [orderByDirection.toLowerCase() as 'asc' | 'desc'],
+      );
+    }
     return this.reportService.find(userId, filter);
   }
 
