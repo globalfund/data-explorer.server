@@ -26,7 +26,7 @@ export const queueReportThumbnailGeneration = async (reportId: string) => {
     },
     {
       jobId,
-      delay: 3000,
+      delay: 2000,
       attempts: 3,
       backoff: {
         type: 'exponential',
