@@ -21,7 +21,7 @@ import _ from 'lodash';
 import {ReportModel} from 'rb-core-middleware/dist/models';
 import {ReportService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
-import {reportQueue} from '../../queues/report.queue';
+import {queueReportThumbnailGeneration} from '../../queues/report.queue';
 import {handleDataApiError} from '../../utils/dataApiError';
 import {ExportFormat, exportReport} from '../../utils/exportReport';
 import {renderChartData} from '../../utils/renderChart';
@@ -198,21 +198,7 @@ export class ReportController {
       id,
       report,
     );
-    await reportQueue.add(
-      'screenshot-report',
-      {
-        reportId: id,
-      },
-      {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 5000,
-        },
-        removeOnComplete: true,
-        removeOnFail: false,
-      },
-    );
+    await queueReportThumbnailGeneration(id);
     return updateResult;
   }
 

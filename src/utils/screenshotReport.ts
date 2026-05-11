@@ -13,7 +13,7 @@ export const screenshotReport = async (reportId: string) => {
   await page.goto(
     `${process.env.FRONTEND_URL}/report-builder/reports/${reportId}/export`,
     {
-      waitUntil: 'networkidle2',
+      waitUntil: 'networkidle0',
     },
   );
 
