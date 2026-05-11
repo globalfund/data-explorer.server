@@ -37,7 +37,7 @@ export const exportReport = async (
     });
 
     await page.goto(url, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'networkidle0',
     });
 
     // Optional: wait for your report root element if needed
