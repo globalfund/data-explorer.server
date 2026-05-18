@@ -1,4 +1,5 @@
 import puppeteer from 'puppeteer';
+import sharp from 'sharp';
 
 export const screenshotReport = async (reportId: string) => {
   const browser = await puppeteer.launch();
@@ -17,10 +18,21 @@ export const screenshotReport = async (reportId: string) => {
     },
   );
 
-  await page.screenshot({
-    path: `public/report-thumbnail/${reportId}.png`,
+  const screenshotBuffer = await page.screenshot({
+    type: 'png',
     fullPage: true,
   });
+
+  await sharp(screenshotBuffer)
+    .resize({
+      width: 400, // thumbnail width
+      withoutEnlargement: true,
+    })
+    .png({
+      compressionLevel: 9,
+      palette: true,
+    })
+    .toFile(`public/report-thumbnail/${reportId}.png`);
 
   await browser.close();
 };
