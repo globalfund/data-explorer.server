@@ -16,7 +16,7 @@ import {
 } from '@loopback/rest';
 import _ from 'lodash';
 import {FolderModel} from 'rb-core-middleware/dist/models';
-import {FolderService} from 'rb-core-middleware/dist/services';
+import {FolderService, ReportService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
 
 export class FolderController {
@@ -24,6 +24,7 @@ export class FolderController {
     @inject(RestBindings.Http.REQUEST) private req: Request,
     @inject('services.logger') private logger: Logger,
     @inject('services.FolderService') private folderService: FolderService,
+    @inject('services.ReportService') private reportService: ReportService,
   ) {}
 
   @post('/folder')
@@ -67,12 +68,69 @@ export class FolderController {
   // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
   async find(
     @param.filter(FolderModel) filter?: Filter<FolderModel>,
-  ): Promise<FolderModel[]> {
+    @param.query.string('includeSubFolders') includeSubFolders?: string,
+  ): Promise<any[]> {
     const userId = _.get(this.req, 'user.sub', 'anonymous');
     this.logger.info(
       `FolderController - find - Fetching folders for user ${userId}`,
     );
-    return this.folderService.find(userId, filter);
+    if (Boolean(includeSubFolders)) {
+      return this.folderService.getAllFoldersWithSubfolders(userId, filter);
+    } else {
+      const folders = await this.folderService.find(userId, filter);
+      const folderById = new Map<string, FolderModel>(
+        folders.map(f => [f.id, f]),
+      );
+      const pathCache = new Map<string, string>();
+      const buildFolderPath = (folderId: string | undefined): string => {
+        if (!folderId) return 'My Workspace';
+        const cached = pathCache.get(folderId);
+        if (cached !== undefined) return cached;
+        const folder = folderById.get(folderId);
+        if (!folder) return 'My Workspace';
+        const parentPath = buildFolderPath(folder.parentId);
+        const path =
+          parentPath === 'My Workspace'
+            ? `My Workspace > ${folder.name}`
+            : `${parentPath} > ${folder.name}`;
+        pathCache.set(folderId, path);
+        return path;
+      };
+
+      const foldersWithPath = _.filter(folders, folder => !folder.parentId).map(
+        folder => {
+          const locationPath = buildFolderPath(folder.parentId);
+          return {
+            ...folder,
+            locationPath,
+          };
+        },
+      );
+      return foldersWithPath;
+    }
+  }
+
+  @get('/folders-structure')
+  @response(200, {
+    description: 'Array of FolderModel instances',
+    content: {
+      'application/json': {
+        schema: {
+          type: 'array',
+          items: getModelSchemaRef(FolderModel, {includeRelations: true}),
+        },
+      },
+    },
+  })
+  // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
+  async getFoldersStructure(
+    @param.filter(FolderModel) filter?: Filter<FolderModel>,
+  ): Promise<FolderModel[]> {
+    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    this.logger.info(
+      `FolderController - getFoldersStructure - Fetching folder structure for user ${userId}`,
+    );
+    return this.folderService.getFolderTree(userId);
   }
 
   @get('/folder/{id}')
@@ -172,5 +230,130 @@ export class FolderController {
       `FolderController - duplicate - Duplicating folder ${id} for user ${userId}`,
     );
     return this.folderService.duplicate(userId, id);
+  }
+
+  @get('/folder/add-asset/{id}')
+  @response(200, {
+    description: 'FolderModel instance',
+    content: {
+      'application/json': {
+        schema: getModelSchemaRef(FolderModel, {includeRelations: true}),
+      },
+    },
+  })
+  // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
+  async addAssetToFolder(
+    @param.path.string('id') id: string,
+    @param.query.string('assetId') assetId: string,
+  ): Promise<FolderModel | {error: string; errorType: string}> {
+    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    this.logger.info(
+      `FolderController - addAssetToFolder - Adding asset ${assetId} to folder ${id} for user ${userId}`,
+    );
+    return this.folderService.addAsset(userId, id, assetId);
+  }
+
+  @get('/folder/remove-asset/{id}')
+  @response(200, {
+    description: 'FolderModel instance',
+    content: {
+      'application/json': {
+        schema: getModelSchemaRef(FolderModel, {includeRelations: true}),
+      },
+    },
+  })
+  // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
+  async removeAssetFromFolder(
+    @param.path.string('id') id: string,
+    @param.query.string('assetId') assetId: string,
+  ): Promise<FolderModel | {error: string; errorType: string}> {
+    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    this.logger.info(
+      `FolderController - removeAssetFromFolder - Removing asset ${assetId} from folder ${id} for user ${userId}`,
+    );
+    return this.folderService.removeAsset(userId, id, assetId);
+  }
+
+  @get('/folder/add-report/{id}')
+  @response(200, {
+    description: 'FolderModel instance',
+    content: {
+      'application/json': {
+        schema: getModelSchemaRef(FolderModel, {includeRelations: true}),
+      },
+    },
+  })
+  // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
+  async addReportToFolder(
+    @param.path.string('id') id: string,
+    @param.query.string('reportId') reportId: string,
+  ): Promise<FolderModel | {error: string; errorType: string}> {
+    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    this.logger.info(
+      `FolderController - addReportToFolder - Adding report ${reportId} to folder ${id} for user ${userId}`,
+    );
+    const reportPrevFolder = await this.reportService.findById(
+      [userId],
+      reportId,
+    );
+    return this.folderService.addReport(
+      userId,
+      id,
+      reportId,
+      // @ts-ignore
+      reportPrevFolder?.folderId ?? undefined,
+    );
+  }
+
+  @get('/folder/remove-report/{id}')
+  @response(200, {
+    description: 'FolderModel instance',
+    content: {
+      'application/json': {
+        schema: getModelSchemaRef(FolderModel, {includeRelations: true}),
+      },
+    },
+  })
+  // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
+  async removeReportFromFolder(
+    @param.path.string('id') id: string,
+    @param.query.string('reportId') reportId: string,
+  ): Promise<FolderModel | {error: string; errorType: string}> {
+    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    this.logger.info(
+      `FolderController - removeReportFromFolder - Removing report ${reportId} from folder ${id} for user ${userId}`,
+    );
+    return this.folderService.removeReport(userId, id, reportId);
+  }
+
+  @get('/folder/add-folder/{id}')
+  @response(200, {
+    description: 'FolderModel instance',
+    content: {
+      'application/json': {
+        schema: getModelSchemaRef(FolderModel, {includeRelations: true}),
+      },
+    },
+  })
+  // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
+  async addFolderToFolder(
+    @param.path.string('id') id: string,
+    @param.query.string('folderId') folderId: string,
+  ): Promise<FolderModel | {error: string; errorType: string}> {
+    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    this.logger.info(
+      `FolderController - addFolderToFolder - Adding folder ${folderId} to folder ${id} for user ${userId}`,
+    );
+    const folderPrevFolder = await this.folderService.findById(
+      [userId],
+      folderId,
+    );
+    return this.folderService.addFolder(
+      userId,
+      id,
+      folderId,
+      // @ts-ignore
+      folderPrevFolder?.folderId ?? undefined,
+    );
   }
 }

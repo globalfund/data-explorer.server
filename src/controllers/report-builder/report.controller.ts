@@ -18,8 +18,8 @@ import {
 import axios, {AxiosResponse} from 'axios';
 import fs from 'fs/promises';
 import _ from 'lodash';
-import {ReportModel} from 'rb-core-middleware/dist/models';
-import {ReportService} from 'rb-core-middleware/dist/services';
+import {FolderModel, ReportModel} from 'rb-core-middleware/dist/models';
+import {FolderService, ReportService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
 import {queueReportThumbnailGeneration} from '../../queues/report.queue';
 import {handleDataApiError} from '../../utils/dataApiError';
@@ -32,6 +32,7 @@ export class ReportController {
     @inject(RestBindings.Http.RESPONSE) private response: Response,
     @inject('services.logger') private logger: Logger,
     @inject('services.ReportService') private reportService: ReportService,
+    @inject('services.FolderService') private folderService: FolderService,
   ) {}
 
   @post('/report/render-chart-data')
@@ -42,47 +43,6 @@ export class ReportController {
     } catch (e) {
       handleDataApiError(e);
     }
-  }
-
-  @get('/report/dummy')
-  @response(200)
-  async dummy() {
-    this.logger.info('ReportController - dummy - Dummy endpoint called');
-    return this.reportService.create('dummy-user', {
-      name: 'Dummy Report',
-      nameLower: 'dummy report',
-      description: 'This is a dummy report',
-      items: [],
-      public: false,
-      baseline: false,
-      owner: 'dummy-user',
-      updatedDate: new Date().toISOString(),
-      createdDate: new Date().toISOString(),
-      settings: {
-        width: 800,
-        height: 600,
-        paddingLeft: 10,
-        paddingTop: 10,
-        paddingRight: 10,
-        paddingBottom: 10,
-        stroke: 0,
-        strokeColor: '#000000',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 0,
-      },
-      getId: function () {
-        return '';
-      },
-      getIdObject: function () {
-        return {};
-      },
-      toJSON: function () {
-        return {};
-      },
-      toObject: function () {
-        return {};
-      },
-    });
   }
 
   @post('/report')
@@ -140,12 +100,98 @@ export class ReportController {
   // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
   async find(
     @param.filter(ReportModel) filter?: Filter<ReportModel>,
-  ): Promise<ReportModel[]> {
+    @param.query.string('onlyRootLevel') onlyRootLevel?: boolean,
+    @param.filter(FolderModel) folderFilter?: Filter<FolderModel>,
+    @param.query.string('includeFolders') includeFolders?: boolean,
+  ): Promise<
+    {
+      id: string;
+      name: string;
+      owner: string;
+      public: boolean;
+      description: string;
+      createdDate: string;
+      updatedDate: string;
+      isFolder?: boolean;
+      assetCount?: number;
+      reportCount?: number;
+      locationPath: string;
+    }[]
+  > {
     const userId = _.get(this.req, 'user.sub', 'anonymous');
     this.logger.info(
       `ReportController - find - Fetching reports for user ${userId}`,
     );
-    return this.reportService.find(userId, filter);
+    const reports = await this.reportService.find(userId, filter);
+    const allFolders = await this.folderService.find(userId, folderFilter);
+
+    const folderById = new Map<string, FolderModel>(
+      allFolders.map(f => [f.id, f]),
+    );
+    const pathCache = new Map<string, string>();
+    const buildFolderPath = (folderId: string | undefined): string => {
+      if (!folderId) return 'My Workspace';
+      const cached = pathCache.get(folderId);
+      if (cached !== undefined) return cached;
+      const folder = folderById.get(folderId);
+      if (!folder) return 'My Workspace';
+      const parentPath = buildFolderPath(folder.parentId);
+      const path =
+        parentPath === 'My Workspace'
+          ? `My Workspace > ${folder.name}`
+          : `${parentPath} > ${folder.name}`;
+      pathCache.set(folderId, path);
+      return path;
+    };
+
+    const reportsWithPath = _.filter(
+      reports,
+      report => !onlyRootLevel || !report.folderId,
+    ).map(report => {
+      const locationPath = buildFolderPath(report.folderId);
+      return {
+        ..._.omit(report, ['folderId']),
+        locationPath,
+      };
+    });
+
+    const foldersWithPath = _.filter(
+      allFolders,
+      folder => !onlyRootLevel || !folder.parentId,
+    ).map(folder => {
+      const locationPath = buildFolderPath(folder.parentId);
+      return {
+        ..._.omit(folder, ['parentId']),
+        locationPath,
+      };
+    });
+
+    if (includeFolders) {
+      const orderFilter = _.get(filter, 'order[0]', 'createdDate DESC');
+      const [orderByField, orderByDirection] = orderFilter.split(' ');
+      return _.orderBy(
+        [
+          ...reportsWithPath,
+          ...foldersWithPath.map(folder => ({
+            id: folder.id,
+            name: folder.name,
+            public: false,
+            owner: folder.owner,
+            createdDate: folder.createdDate,
+            updatedDate: folder.updatedDate,
+            description: '',
+            isFolder: true,
+            assetCount: folder.assets ? folder.assets.length : 0,
+            reportCount: folder.reports ? folder.reports.length : 0,
+            folderCount: folder.children ? folder.children.length : 0,
+            locationPath: folder.locationPath,
+          })),
+        ],
+        [orderByField],
+        [orderByDirection.toLowerCase() as 'asc' | 'desc'],
+      );
+    }
+    return reportsWithPath;
   }
 
   @get('/report/{id}')
