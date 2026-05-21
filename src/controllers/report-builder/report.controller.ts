@@ -100,8 +100,9 @@ export class ReportController {
   // @authenticate({strategy: 'auth0-jwt', options: {scopes: ['greet']}})
   async find(
     @param.filter(ReportModel) filter?: Filter<ReportModel>,
-    @param.query.string('includeFolders') includeFolders?: boolean,
+    @param.query.string('onlyRootLevel') onlyRootLevel?: boolean,
     @param.filter(FolderModel) folderFilter?: Filter<FolderModel>,
+    @param.query.string('includeFolders') includeFolders?: boolean,
   ): Promise<
     {
       id: string;
@@ -114,21 +115,64 @@ export class ReportController {
       isFolder?: boolean;
       assetCount?: number;
       reportCount?: number;
+      locationPath: string;
     }[]
   > {
     const userId = _.get(this.req, 'user.sub', 'anonymous');
     this.logger.info(
       `ReportController - find - Fetching reports for user ${userId}`,
     );
+    const reports = await this.reportService.find(userId, filter);
+    const allFolders = await this.folderService.find(userId, folderFilter);
+
+    const folderById = new Map<string, FolderModel>(
+      allFolders.map(f => [f.id, f]),
+    );
+    const pathCache = new Map<string, string>();
+    const buildFolderPath = (folderId: string | undefined): string => {
+      if (!folderId) return 'My Workspace';
+      const cached = pathCache.get(folderId);
+      if (cached !== undefined) return cached;
+      const folder = folderById.get(folderId);
+      if (!folder) return 'My Workspace';
+      const parentPath = buildFolderPath(folder.parentId);
+      const path =
+        parentPath === 'My Workspace'
+          ? `My Workspace > ${folder.name}`
+          : `${parentPath} > ${folder.name}`;
+      pathCache.set(folderId, path);
+      return path;
+    };
+
+    const reportsWithPath = _.filter(
+      reports,
+      report => !onlyRootLevel || !report.folderId,
+    ).map(report => {
+      const locationPath = buildFolderPath(report.folderId);
+      return {
+        ..._.omit(report, ['folderId']),
+        locationPath,
+      };
+    });
+
+    const foldersWithPath = _.filter(
+      allFolders,
+      folder => !onlyRootLevel || !folder.parentId,
+    ).map(folder => {
+      const locationPath = buildFolderPath(folder.parentId);
+      return {
+        ..._.omit(folder, ['parentId']),
+        locationPath,
+      };
+    });
+
     if (includeFolders) {
-      const reports = await this.reportService.find(userId, filter);
-      const folders = await this.folderService.find(userId, folderFilter);
       const orderFilter = _.get(filter, 'order[0]', 'createdDate DESC');
       const [orderByField, orderByDirection] = orderFilter.split(' ');
       return _.orderBy(
         [
-          ...reports,
-          ...folders.map(folder => ({
+          ...reportsWithPath,
+          ...foldersWithPath.map(folder => ({
             id: folder.id,
             name: folder.name,
             public: false,
@@ -139,13 +183,15 @@ export class ReportController {
             isFolder: true,
             assetCount: folder.assets ? folder.assets.length : 0,
             reportCount: folder.reports ? folder.reports.length : 0,
+            folderCount: folder.children ? folder.children.length : 0,
+            locationPath: folder.locationPath,
           })),
         ],
         [orderByField],
         [orderByDirection.toLowerCase() as 'asc' | 'desc'],
       );
     }
-    return this.reportService.find(userId, filter);
+    return reportsWithPath;
   }
 
   @get('/report/{id}')
