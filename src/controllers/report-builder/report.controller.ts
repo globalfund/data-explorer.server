@@ -9,8 +9,8 @@ import {
   patch,
   post,
   put,
-  requestBody,
   Request,
+  requestBody,
   Response,
   response,
   RestBindings,
@@ -21,6 +21,7 @@ import fs from 'fs/promises';
 import _ from 'lodash';
 import {FolderModel, ReportModel} from 'rb-core-middleware/dist/models';
 import {FolderService, ReportService} from 'rb-core-middleware/dist/services';
+import {getCache, setCache} from 'rb-core-middleware/dist/utils/redis';
 import {Logger} from 'winston';
 import {queueReportThumbnailGeneration} from '../../queues/report.queue';
 import {handleDataApiError} from '../../utils/dataApiError';
@@ -416,6 +417,13 @@ export class ReportController {
   @response(200)
   @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async getSampleGFDataset(@param.path.string('datasetId') datasetId: string) {
+    const cachedData = await getCache(`sample-data-${datasetId}`);
+    if (cachedData) {
+      this.logger.info(
+        `ReportController - getSampleGFDataset - Returning cached sample dataset`,
+      );
+      return {data: cachedData};
+    }
     return axios
       .get(`${process.env.BACKEND_API_BASE_URL}/sample-data/${datasetId}`, {
         headers: {
@@ -423,7 +431,9 @@ export class ReportController {
         },
       })
       .then((resp: AxiosResponse) => {
-        return {data: resp.data};
+        const dataToCache = resp.data;
+        setCache(`sample-data-${datasetId}`, dataToCache);
+        return {data: dataToCache};
       })
       .catch(handleDataApiError);
   }
