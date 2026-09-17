@@ -1,0 +1,12 @@
+{
+  "dataPath": "value",
+  "actualAmount": "actual",
+  "plannedAmount": "planned",
+  "year": "periodFrom",
+  "actualsLineTotalUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs'<filterString>)/groupby((periodFrom),aggregate(actualAmount with sum as actual))",
+  "actualsLineWorkforceUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name eq 'Workforce'<filterString>)/groupby((periodFrom),aggregate(actualAmount with sum as actual))",
+  "actualsLineNonWorkforceUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Workforce' AND financialCategory/name ne 'Total operating costs'<filterString>)/groupby((periodFrom),aggregate(actualAmount with sum as actual))",
+  "budgetsLineTotalUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs'<filterString>)/groupby((periodFrom),aggregate(plannedAmount with sum as planned))",
+  "budgetsLineWorkforceUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name eq 'Workforce'<filterString>)/groupby((periodFrom),aggregate(plannedAmount with sum as planned))",
+  "budgetsLineNonWorkforceUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Workforce' AND financialCategory/name ne 'Total operating costs'<filterString>)/groupby((periodFrom),aggregate(plannedAmount with sum as planned))"
+}

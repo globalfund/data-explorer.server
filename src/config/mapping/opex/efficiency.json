@@ -1,0 +1,6 @@
+{
+  "dataPath": "value",
+  "actualAmount": "actual",
+  "year": "periodFrom",
+  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs'<filterString>)/groupby((periodFrom),aggregate(actualAmount with sum as actual))"
+}

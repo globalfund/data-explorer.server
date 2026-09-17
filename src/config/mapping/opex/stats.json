@@ -1,0 +1,14 @@
+{
+  "dataPath": "value[0]",
+  "actualAmount": "actual",
+  "plannedAmount": "planned",
+  "year": "periodFrom",
+  "latestYearUrlParams": "?$filter=financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs'<filterString>&$orderby=periodFrom desc&$top=1&$select=periodFrom",
+  "fullYearBudgetUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs'<filterString>)/aggregate(plannedAmount with sum as planned,actualAmount with sum as actual)",
+  "totalActualUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs'<filterString>)/aggregate(actualAmount with sum as actual)",
+  "workforceActualUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name eq 'Workforce'<filterString>)/aggregate(actualAmount with sum as actual)",
+  "nonWorkforceActualUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Workforce' AND financialCategory/name ne 'Total operating costs'<filterString>)/aggregate(actualAmount with sum as actual)",
+  "cumulativeTotalBudgetAbsorptionUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs'<filterString>)/aggregate(actualAmount with sum as actual, plannedAmount with sum as planned)",
+  "cumulativeTotalBudgetWorkforceAbsorptionUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name eq 'Workforce'<filterString>)/aggregate(actualAmount with sum as actual, plannedAmount with sum as planned)",
+  "cumulativeTotalBudgetNonWorkforceAbsorptionUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Workforce' AND financialCategory/name ne 'Total operating costs'<filterString>)/aggregate(actualAmount with sum as actual, plannedAmount with sum as planned)"
+}

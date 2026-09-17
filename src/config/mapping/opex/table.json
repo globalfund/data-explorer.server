@@ -1,0 +1,9 @@
+{
+  "dataPath": "value",
+  "actualAmount": "actual",
+  "plannedAmount": "planned",
+  "year": "periodFrom",
+  "category": "financialCategory.name",
+  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne null<filterString>)/groupby((periodFrom,financialCategory/name),aggregate(actualAmount with sum as actual,plannedAmount with sum as planned))",
+  "hierarchyUrlParams": "?$filter=financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne null<filterString>&$select=periodFrom,financialCategory,actualAmount,plannedAmount&$expand=financialCategory($expand=parent,children($expand=children))"
+}

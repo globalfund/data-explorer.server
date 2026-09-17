@@ -1,0 +1,7 @@
+{
+  "dataPath": "value",
+  "actualAmount": "actual",
+  "year": "periodFrom",
+  "category": "financialCategory.name",
+  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name in ('Workforce','LFA Fees','Professional fees','Travel','Office Infrastructure','CCM Funding')<filterString>)/groupby((periodFrom,financialCategory/name),aggregate(actualAmount with sum as actual))"
+}

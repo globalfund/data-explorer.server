@@ -1,0 +1,1105 @@
+import {inject} from '@loopback/core';
+import {get, param, Request, response, RestBindings} from '@loopback/rest';
+import axios, {AxiosResponse} from 'axios';
+import _ from 'lodash';
+import OPEXCostCompositionFieldsMapping from '../config/mapping/opex/cost-composition.json';
+import OPEXEfficiencyFieldsMapping from '../config/mapping/opex/efficiency.json';
+import OPEXIndexedTrendsFieldsMapping from '../config/mapping/opex/indexed-trends.json';
+import OPEXKeyCostsFieldsMapping from '../config/mapping/opex/key-costs.json';
+import OPEXOperatingCostsFieldsMapping from '../config/mapping/opex/operating-costs.json';
+import OPEXStatsFieldsMapping from '../config/mapping/opex/stats.json';
+import OPEXTableFieldsMapping from '../config/mapping/opex/table.json';
+import OPEXYearStatsFieldsMapping from '../config/mapping/opex/year-stats.json';
+import urls from '../config/urls/index.json';
+import {handleDataApiError} from '../utils/dataApiError';
+import {filterFinancialIndicators} from '../utils/filtering/financialIndicators';
+
+type HierarchyNode = {
+  name: string;
+  children?: HierarchyNode[];
+};
+
+type OpexTableItem = {
+  name: string;
+  [year: number]: {
+    actual: number;
+    budget: number;
+    variance: number;
+  };
+  _children?: OpexTableItem[];
+};
+
+async function getHierarchy(url: string): Promise<HierarchyNode[]> {
+  try {
+    const response = await axios.get(url);
+    const data = response.data.value;
+    const hierarchy: Record<string, {children: Record<string, any>}> = {};
+    data.forEach((item: any) => {
+      const category = item.financialCategory;
+      if (category) {
+        const parent = category.parent ? category.parent.name : null;
+        const name = category.name;
+        if (parent) {
+          if (!hierarchy[parent]) {
+            hierarchy[parent] = {children: {}};
+          }
+          if (!hierarchy[parent].children[name]) {
+            hierarchy[parent].children[name] = {children: {}};
+          }
+          if (category.children) {
+            category.children.forEach((child: any) => {
+              if (!hierarchy[parent].children[name].children[child.name]) {
+                hierarchy[parent].children[name].children[child.name] = {
+                  children: {},
+                };
+              }
+            });
+          }
+        } else {
+          if (!hierarchy[name]) {
+            hierarchy[name] = {children: {}};
+          }
+          if (category.children) {
+            category.children.forEach((child_1: any) => {
+              if (!hierarchy[name].children[child_1.name]) {
+                hierarchy[name].children[child_1.name] = {children: {}};
+              }
+            });
+          }
+        }
+      }
+    });
+    type HierarchyNode = {
+      name: string;
+      children?: HierarchyNode[];
+    };
+
+    const formatHierarchy = (
+      hierarchy: Record<string, {children: Record<string, any>}>,
+    ): HierarchyNode[] => {
+      return Object.entries(hierarchy).map(
+        ([name, value]): HierarchyNode => ({
+          name,
+          children: formatHierarchy(value.children),
+        }),
+      );
+    };
+    const formattedHierarchy = formatHierarchy(hierarchy);
+    const removeEmptyChildren = (nodes: HierarchyNode[]): HierarchyNode[] => {
+      return nodes.map(node => {
+        const newNode = {...node};
+        if (newNode.children && newNode.children.length > 0) {
+          newNode.children = removeEmptyChildren(newNode.children);
+        }
+        if (newNode.children?.length === 0) {
+          delete newNode.children;
+        }
+        return newNode;
+      });
+    };
+
+    return removeEmptyChildren(formattedHierarchy);
+  } catch (error) {
+    console.error('Error fetching hierarchy:', error);
+    return [];
+  }
+}
+
+function applyHierarchy(
+  result: OpexTableItem[],
+  hierarchy: HierarchyNode[],
+): OpexTableItem[] {
+  const resultByName = new Map(result.map(entry => [entry.name, entry]));
+  const consumed = new Set<string>();
+
+  const buildNode = (node: HierarchyNode): OpexTableItem => {
+    const source = resultByName.get(node.name);
+    if (source) consumed.add(node.name);
+
+    const entry: OpexTableItem = source ? {...source} : {name: node.name};
+
+    if (node.children?.length) {
+      // Hierarchy children replace the flat year rows for category nodes.
+      entry._children = node.children.map(buildNode);
+    } else if (source?._children) {
+      // Leaf categories retain the year/value rows created by the API data.
+      entry._children = source._children.map(child => ({...child}));
+    }
+
+    return entry;
+  };
+
+  // Preserve categories that have data but are not present in the hierarchy.
+  const finalResult = hierarchy.map(buildNode).concat(
+    result
+      .filter(entry => !consumed.has(entry.name))
+      .map(entry => ({
+        ...entry,
+        _children: entry._children?.map(child => ({...child})),
+      })),
+  );
+
+  const TOTAL_OPERATING_COSTS_NAME = 'Total operating costs';
+
+  const extractByName = (
+    items: OpexTableItem[],
+    name: string,
+  ): {items: OpexTableItem[]; extracted?: OpexTableItem} => {
+    let extracted: OpexTableItem | undefined;
+    const remaining: OpexTableItem[] = [];
+
+    for (const item of items) {
+      if (!extracted && item.name === name) {
+        extracted = item;
+        continue;
+      }
+      if (item._children?.length) {
+        const nested = extractByName(item._children, name);
+        if (nested.extracted && !extracted) {
+          extracted = nested.extracted;
+          remaining.push({...item, _children: nested.items});
+          continue;
+        }
+      }
+      remaining.push(item);
+    }
+
+    return {items: remaining, extracted};
+  };
+
+  const {items: resultWithoutTotal, extracted: totalOperatingCosts} =
+    extractByName(finalResult, TOTAL_OPERATING_COSTS_NAME);
+
+  if (totalOperatingCosts) {
+    resultWithoutTotal.push(totalOperatingCosts);
+    return resultWithoutTotal;
+  }
+
+  return finalResult;
+}
+
+export class OPEXController {
+  constructor(@inject(RestBindings.Http.REQUEST) private req: Request) {}
+
+  @get('/opex/years')
+  @response(200)
+  async opexYears(): Promise<{startYear: number; endYear: number}> {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const latestYearFilterString = await filterFinancialIndicators(
+      this.req.query,
+      OPEXStatsFieldsMapping.latestYearUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+
+    const url = `${urls.FINANCIAL_INDICATORS}/${latestYearFilterString}`;
+
+    return axios
+      .get(url)
+      .then(response => {
+        const endYear = parseInt(
+          _.get(
+            response.data,
+            `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.year}]`,
+            new Date().getFullYear(),
+          ),
+          10,
+        );
+        return {
+          endYear,
+          startYear: endYear - 9,
+        };
+      })
+      .catch(() => {
+        const endYear = new Date().getFullYear();
+        return {
+          endYear,
+          startYear: endYear - 9,
+        };
+      });
+  }
+
+  @get('/opex/stats')
+  @response(200)
+  async opexStats() {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const {startYear, endYear} = await this.opexYears();
+
+    const cumulativeTotalBudgetAbsorptionYears = Array.from(
+      {length: endYear - startYear + 1},
+      (_, i) => (startYear + i).toString(),
+    );
+
+    const fullYearBudgetFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: endYear.toString(),
+        periodsTo: endYear.toString(),
+      },
+      OPEXStatsFieldsMapping.fullYearBudgetUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+    const growthFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: startYear.toString(),
+        periodsTo: startYear.toString(),
+      },
+      OPEXStatsFieldsMapping.fullYearBudgetUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+    const totalActualFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: endYear.toString(),
+        periodsTo: endYear.toString(),
+      },
+      OPEXStatsFieldsMapping.totalActualUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+    const workforceActualFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: endYear.toString(),
+        periodsTo: endYear.toString(),
+      },
+      OPEXStatsFieldsMapping.workforceActualUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+    const nonWorkforceActualFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: endYear.toString(),
+        periodsTo: endYear.toString(),
+      },
+      OPEXStatsFieldsMapping.nonWorkforceActualUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+    const cumulativeTotalBudgetAbsorptionFilterString =
+      await filterFinancialIndicators(
+        {
+          ...this.req.query,
+          periodsFrom: cumulativeTotalBudgetAbsorptionYears.join(','),
+          periodsTo: cumulativeTotalBudgetAbsorptionYears.join(','),
+        },
+        OPEXStatsFieldsMapping.cumulativeTotalBudgetAbsorptionUrlParams,
+        geographyMappings,
+        'implementationPeriod/grant/activityArea/name',
+        'budget',
+      );
+    const cumulativeTotalBudgetWorkforceAbsorptionFilterString =
+      await filterFinancialIndicators(
+        {
+          ...this.req.query,
+          periodsFrom: cumulativeTotalBudgetAbsorptionYears.join(','),
+          periodsTo: cumulativeTotalBudgetAbsorptionYears.join(','),
+        },
+        OPEXStatsFieldsMapping.cumulativeTotalBudgetWorkforceAbsorptionUrlParams,
+        geographyMappings,
+        'implementationPeriod/grant/activityArea/name',
+        'budget',
+      );
+    const cumulativeTotalBudgetNonWorkforceAbsorptionFilterString =
+      await filterFinancialIndicators(
+        {
+          ...this.req.query,
+          periodsFrom: cumulativeTotalBudgetAbsorptionYears.join(','),
+          periodsTo: cumulativeTotalBudgetAbsorptionYears.join(','),
+        },
+        OPEXStatsFieldsMapping.cumulativeTotalBudgetNonWorkforceAbsorptionUrlParams,
+        geographyMappings,
+        'implementationPeriod/grant/activityArea/name',
+        'budget',
+      );
+
+    const fullYearBudgetUrl = `${urls.FINANCIAL_INDICATORS}/${fullYearBudgetFilterString}`;
+    const growthUrl = `${urls.FINANCIAL_INDICATORS}/${growthFilterString}`;
+    const totalActualUrl = `${urls.FINANCIAL_INDICATORS}/${totalActualFilterString}`;
+    const workforceActualUrl = `${urls.FINANCIAL_INDICATORS}/${workforceActualFilterString}`;
+    const nonWorkforceActualUrl = `${urls.FINANCIAL_INDICATORS}/${nonWorkforceActualFilterString}`;
+    const cumulativeTotalBudgetAbsorptionUrl = `${urls.FINANCIAL_INDICATORS}/${cumulativeTotalBudgetAbsorptionFilterString}`;
+    const cumulativeTotalBudgetWorkforceAbsorptionUrl = `${urls.FINANCIAL_INDICATORS}/${cumulativeTotalBudgetWorkforceAbsorptionFilterString}`;
+    const cumulativeTotalBudgetNonWorkforceAbsorptionUrl = `${urls.FINANCIAL_INDICATORS}/${cumulativeTotalBudgetNonWorkforceAbsorptionFilterString}`;
+
+    return axios
+      .all([
+        axios.get(fullYearBudgetUrl),
+        axios.get(growthUrl),
+        axios.get(totalActualUrl),
+        axios.get(workforceActualUrl),
+        axios.get(nonWorkforceActualUrl),
+        axios.get(cumulativeTotalBudgetAbsorptionUrl),
+        axios.get(cumulativeTotalBudgetWorkforceAbsorptionUrl),
+        axios.get(cumulativeTotalBudgetNonWorkforceAbsorptionUrl),
+      ])
+      .then(
+        axios.spread(
+          (
+            resp1: AxiosResponse,
+            resp2: AxiosResponse,
+            resp3: AxiosResponse,
+            resp4: AxiosResponse,
+            resp5: AxiosResponse,
+            resp6: AxiosResponse,
+            resp7: AxiosResponse,
+            resp8: AxiosResponse,
+          ) => {
+            const fullYearBudget = _.get(
+              resp1.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.plannedAmount}]`,
+              0,
+            );
+            const fullYearForecast = _.get(
+              resp1.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
+              0,
+            );
+            const growthStartYearBudget = _.get(
+              resp2.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.plannedAmount}]`,
+              0,
+            );
+            const totalActual = _.get(
+              resp3.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
+              0,
+            );
+            const workforceActual = _.get(
+              resp4.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
+              0,
+            );
+            const nonWorkforceActual = _.get(
+              resp5.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
+              0,
+            );
+            const cumulativeTotalBudget = _.get(
+              resp6.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
+              0,
+            );
+            const cumulativeTotalValue = _.get(
+              resp6.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.plannedAmount}]`,
+              0,
+            );
+            const cumulativeTotalBudgetWorkforceAbsorption = _.get(
+              resp7.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
+              0,
+            );
+            const cumulativeTotalBudgetNonWorkforceAbsorption = _.get(
+              resp8.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
+              0,
+            );
+            const cumulativeTotalBudgetWorkforceAbsorptionPercentage =
+              cumulativeTotalBudgetWorkforceAbsorption && cumulativeTotalValue
+                ? (cumulativeTotalBudgetWorkforceAbsorption /
+                    cumulativeTotalValue) *
+                  100
+                : 0;
+            const cumulativeTotalBudgetNonWorkforceAbsorptionPercentage =
+              cumulativeTotalBudgetNonWorkforceAbsorption &&
+              cumulativeTotalValue
+                ? (cumulativeTotalBudgetNonWorkforceAbsorption /
+                    cumulativeTotalValue) *
+                  100
+                : 0;
+
+            return {
+              budget: fullYearBudget,
+              budget_million: fullYearBudget / 1_000_000,
+              forecast: fullYearForecast,
+              forecast_million: fullYearForecast / 1_000_000,
+              growthStartYearValue: growthStartYearBudget,
+              totalActual: totalActual,
+              totalActual_million: totalActual / 1_000_000,
+              workforceActual: workforceActual,
+              workforceActual_million: workforceActual / 1_000_000,
+              nonWorkforceActual: nonWorkforceActual,
+              nonWorkforceActual_million: nonWorkforceActual / 1_000_000,
+              totalActualPercentage:
+                fullYearBudget && totalActual
+                  ? (totalActual / fullYearBudget) * 100
+                  : 0,
+              growthPercentage:
+                fullYearBudget && growthStartYearBudget
+                  ? ((fullYearBudget - growthStartYearBudget) /
+                      growthStartYearBudget) *
+                    100
+                  : 0,
+              cumulativeTotalBudget: cumulativeTotalBudget,
+              cumulativeTotalBudget_million: cumulativeTotalBudget / 1_000_000,
+              cumulativeTotalValue: cumulativeTotalValue,
+              cumulativeTotalValue_million: cumulativeTotalValue / 1_000_000,
+              cumulativeTotalBudgetAbsorptionPercentage:
+                cumulativeTotalBudget && cumulativeTotalValue
+                  ? (cumulativeTotalBudget / cumulativeTotalValue) * 100
+                  : 0,
+              cumulativeTotalBudgetWorkforceAbsorption:
+                cumulativeTotalBudgetWorkforceAbsorption,
+              cumulativeTotalBudgetWorkforceAbsorption_million:
+                cumulativeTotalBudgetWorkforceAbsorption / 1_000_000,
+              cumulativeTotalBudgetWorkforceAbsorptionPercentage:
+                cumulativeTotalBudgetWorkforceAbsorptionPercentage,
+              cumulativeTotalBudgetNonWorkforceAbsorption:
+                cumulativeTotalBudgetNonWorkforceAbsorption,
+              cumulativeTotalBudgetNonWorkforceAbsorption_million:
+                cumulativeTotalBudgetNonWorkforceAbsorption / 1_000_000,
+              cumulativeTotalBudgetNonWorkforceAbsorptionPercentage:
+                cumulativeTotalBudgetNonWorkforceAbsorptionPercentage,
+            };
+          },
+        ),
+      )
+      .catch(handleDataApiError);
+  }
+
+  @get('/opex/operating-costs/{category}')
+  @response(200)
+  async getOperatingCosts(
+    @param.path.string('category')
+    category: 'Workforce' | 'NonWorkforce' | 'Total',
+  ) {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const {startYear, endYear} = await this.opexYears();
+
+    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+      (startYear + i).toString(),
+    );
+
+    const actualsLineFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXOperatingCostsFieldsMapping[`actualsLine${category}UrlParams`],
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+    const budgetsLineFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXOperatingCostsFieldsMapping[`budgetsLine${category}UrlParams`],
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+
+    const actualsLineUrl = `${urls.FINANCIAL_INDICATORS}/${actualsLineFilterString}`;
+    const budgetsLineUrl = `${urls.FINANCIAL_INDICATORS}/${budgetsLineFilterString}`;
+
+    return axios
+      .all([axios.get(actualsLineUrl), axios.get(budgetsLineUrl)])
+      .then(
+        axios.spread((actualsLineResponse, budgetsLineResponse) => {
+          const actualsLineData = _.get(
+            actualsLineResponse.data,
+            OPEXOperatingCostsFieldsMapping.dataPath,
+            [],
+          ).map((item: any) =>
+            _.get(item, OPEXOperatingCostsFieldsMapping.actualAmount),
+          );
+          const budgetsLineData = _.get(
+            budgetsLineResponse.data,
+            OPEXOperatingCostsFieldsMapping.dataPath,
+            [],
+          ).map((item: any) =>
+            _.get(item, OPEXOperatingCostsFieldsMapping.plannedAmount),
+          );
+          return {
+            actualsLineYValues: actualsLineData,
+            budgetsLineYValues: budgetsLineData,
+            xAxisValues: years,
+          };
+        }),
+      )
+      .catch(handleDataApiError);
+  }
+
+  @get('/opex/efficiency')
+  @response(200)
+  async getOpexEfficiency() {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const {startYear, endYear} = await this.opexYears();
+
+    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+      (startYear + i).toString(),
+    );
+
+    const pledgesUrl = `http://127.0.0.1:${process.env.PORT ?? 4200}/pledges-contributions/bar`;
+
+    const pledgesByCycle: {
+      name: string; // Cycle name like "2001-2005"
+      value: number; // Pledge amount
+      value1: number; // Contribution amount
+      cycle: string; // Cycle name like "2001-2005"
+    }[] = (await axios.get(pledgesUrl)).data?.data ?? [];
+
+    pledgesByCycle.forEach((pledge, i) => {
+      pledge.cycle = pledge.name;
+      pledge.name = `GC${i}·${pledge.name}`;
+    });
+
+    const filterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXEfficiencyFieldsMapping.urlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+
+    const url = `${urls.FINANCIAL_INDICATORS}/${filterString}`;
+
+    return axios
+      .get(url)
+      .then(response => {
+        const data = _.orderBy(
+          _.get(response.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
+            (item: any) => ({
+              year: _.get(item, OPEXEfficiencyFieldsMapping.year),
+              actual: _.get(item, OPEXEfficiencyFieldsMapping.actualAmount),
+            }),
+          ),
+          ['year'],
+          ['asc'],
+        );
+
+        const efficiencyByCycle = pledgesByCycle.map(pledge => {
+          const actualForCycle = data
+            .filter(
+              item =>
+                parseInt(item.year, 10) >=
+                  parseInt(pledge.cycle.split('-')[0], 10) &&
+                parseInt(item.year, 10) <=
+                  parseInt(pledge.cycle.split('-')[1], 10),
+            )
+            .reduce((sum, item) => sum + item.actual, 0);
+          return {
+            name: pledge.name,
+            pledge: pledge.value,
+            actual: actualForCycle,
+            efficiency: actualForCycle / pledge.value,
+          };
+        });
+
+        // clear any 0 valued efficiencies
+
+        return efficiencyByCycle.filter(item => item.efficiency !== 0);
+      })
+      .catch(handleDataApiError);
+  }
+
+  @get('/opex/year-stats')
+  @response(200)
+  async getOpexYearStats() {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const {endYear} = await this.opexYears();
+
+    const filterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: endYear.toString(),
+        periodsTo: endYear.toString(),
+      },
+      OPEXYearStatsFieldsMapping.urlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+
+    const url = `${urls.FINANCIAL_INDICATORS}/${filterString}`;
+
+    return axios
+      .all([axios.get(url)])
+      .then(
+        axios.spread(data => {
+          const budget = _.get(
+            data.data,
+            `[${OPEXYearStatsFieldsMapping.dataPath}][${OPEXYearStatsFieldsMapping.plannedAmount}]`,
+            0,
+          );
+          const actual = _.get(
+            data.data,
+            `[${OPEXYearStatsFieldsMapping.dataPath}][${OPEXYearStatsFieldsMapping.actualAmount}]`,
+            0,
+          );
+          return {budget, actual, forecast: 0};
+        }),
+      )
+      .catch(handleDataApiError);
+  }
+
+  @get('/opex/cost-composition')
+  @response(200)
+  async getOpexCostComposition() {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const {startYear, endYear} = await this.opexYears();
+
+    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+      (startYear + i).toString(),
+    );
+
+    const filterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXCostCompositionFieldsMapping.urlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+
+    const url = `${urls.FINANCIAL_INDICATORS}/${filterString}`;
+
+    return axios
+      .all([axios.get(url)])
+      .then(
+        axios.spread(data => {
+          const costComposition = _.orderBy(
+            _.get(
+              data.data,
+              `[${OPEXCostCompositionFieldsMapping.dataPath}]`,
+              [],
+            ).map((item: any) => ({
+              year: _.get(item, OPEXCostCompositionFieldsMapping.year, ''),
+              category: _.get(
+                item,
+                OPEXCostCompositionFieldsMapping.category,
+                '',
+              ),
+              actual: _.get(
+                item,
+                OPEXCostCompositionFieldsMapping.actualAmount,
+                0,
+              ),
+            })),
+            ['year', 'category'],
+            ['asc', 'asc'],
+          );
+          const groupedByYear = _.groupBy(costComposition, 'year');
+          const years = Object.keys(groupedByYear).sort();
+          const values: number[][] = years.map(year =>
+            groupedByYear[year].map(item => item.actual),
+          );
+          const categories = Array.from(
+            new Set(costComposition.map(item => item.category)),
+          );
+          return {years, values, categories};
+        }),
+      )
+      .catch(handleDataApiError);
+  }
+
+  @get('/opex/key-costs')
+  @response(200)
+  async getOpexKeyCosts() {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const {startYear, endYear} = await this.opexYears();
+
+    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+      (startYear + i).toString(),
+    );
+
+    const filterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXKeyCostsFieldsMapping.urlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+    const annualTotalsFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXKeyCostsFieldsMapping.annualTotalsUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+
+    const url = `${urls.FINANCIAL_INDICATORS}/${filterString}`;
+    const annualTotalsUrl = `${urls.FINANCIAL_INDICATORS}/${annualTotalsFilterString}`;
+
+    return axios
+      .all([axios.get(url), axios.get(annualTotalsUrl)])
+      .then(
+        axios.spread((data, annualTotalsData) => {
+          const keyCosts = _.orderBy(
+            _.get(data.data, `[${OPEXKeyCostsFieldsMapping.dataPath}]`, []).map(
+              (item: any) => ({
+                year: _.get(item, OPEXKeyCostsFieldsMapping.year, ''),
+                category: _.get(item, OPEXKeyCostsFieldsMapping.category, ''),
+                actual: _.get(item, OPEXKeyCostsFieldsMapping.actualAmount, 0),
+                planned: _.get(
+                  item,
+                  OPEXKeyCostsFieldsMapping.plannedAmount,
+                  0,
+                ),
+              }),
+            ),
+            ['year', 'category'],
+            ['asc', 'asc'],
+          );
+          const annualTotals = _.orderBy(
+            _.get(
+              annualTotalsData.data,
+              `[${OPEXKeyCostsFieldsMapping.dataPath}]`,
+              [],
+            ).map((item: any) => ({
+              year: _.get(item, OPEXKeyCostsFieldsMapping.year, ''),
+              value: _.get(item, OPEXKeyCostsFieldsMapping.actualAmount, 0),
+            })),
+            ['year', 'category'],
+            ['asc', 'asc'],
+          );
+          const groupedByCategory = _.groupBy(keyCosts, 'category');
+          const items: {
+            name: string;
+            values: number[];
+            endYearBudget: number;
+            growthPercentage: number;
+          }[] = Object.keys(groupedByCategory).map(category => {
+            const values = groupedByCategory[category].map(item => item.actual);
+            const actualPercentageValues = groupedByCategory[category].map(
+              item => {
+                const annualTotal =
+                  annualTotals.find(at => at.year === item.year)?.value ?? 0;
+                return annualTotal ? (item.actual / annualTotal) * 100 : 0;
+              },
+            );
+            const startYearBudget = groupedByCategory[category].sort((a, b) =>
+              a.year.localeCompare(b.year),
+            )[0].planned;
+            const endYearBudget = groupedByCategory[category].sort((a, b) =>
+              b.year.localeCompare(a.year),
+            )[0].planned;
+            const growthPercentage = startYearBudget
+              ? ((endYearBudget - startYearBudget) / startYearBudget) * 100
+              : 0;
+            const startYearBudgetPercentage =
+              startYearBudget &&
+              annualTotals.find(
+                at =>
+                  at.year ===
+                  groupedByCategory[category].sort((a, b) =>
+                    a.year.localeCompare(b.year),
+                  )[0].year,
+              )?.value
+                ? (startYearBudget /
+                    annualTotals.find(
+                      at =>
+                        at.year ===
+                        groupedByCategory[category].sort((a, b) =>
+                          a.year.localeCompare(b.year),
+                        )[0].year,
+                    )?.value) *
+                  100
+                : 0;
+            const endYearBudgetPercentage =
+              endYearBudget &&
+              annualTotals.find(
+                at =>
+                  at.year ===
+                  groupedByCategory[category].sort((a, b) =>
+                    b.year.localeCompare(a.year),
+                  )[0].year,
+              )?.value
+                ? (endYearBudget /
+                    annualTotals.find(
+                      at =>
+                        at.year ===
+                        groupedByCategory[category].sort((a, b) =>
+                          b.year.localeCompare(a.year),
+                        )[0].year,
+                    )?.value) *
+                  100
+                : 0;
+
+            return {
+              name: category,
+              values,
+              actualPercentageValues,
+              endYearBudget,
+              growthPercentage,
+              startYearBudgetPercentage,
+              endYearBudgetPercentage,
+            };
+          });
+          return {items, years};
+        }),
+      )
+      .catch(handleDataApiError);
+  }
+
+  @get('/opex/indexed-trends')
+  @response(200)
+  async getOpexIndexedTrends() {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const {startYear, endYear} = await this.opexYears();
+
+    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+      (startYear + i).toString(),
+    );
+
+    const filterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXIndexedTrendsFieldsMapping.urlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+
+    const url = `${urls.FINANCIAL_INDICATORS}/${filterString}`;
+
+    return axios
+      .get(url)
+      .then(response => {
+        const data = _.orderBy(
+          _.get(response.data, OPEXIndexedTrendsFieldsMapping.dataPath, []).map(
+            (item: any) => ({
+              year: _.get(item, OPEXIndexedTrendsFieldsMapping.year),
+              category: _.get(item, OPEXIndexedTrendsFieldsMapping.category),
+              actual: _.get(item, OPEXIndexedTrendsFieldsMapping.actualAmount),
+            }),
+          ),
+          ['year', 'category'],
+          ['asc', 'asc'],
+        );
+
+        const groupedByCategory = _.groupBy(data, 'category');
+
+        const result: {name: string; data: number[]}[] = [];
+
+        for (const category in groupedByCategory) {
+          const categoryData = groupedByCategory[category];
+          const indexedData = categoryData.map(item => {
+            const baseValue = categoryData[0].actual;
+            return baseValue ? (item.actual / baseValue) * 100 : 0;
+          });
+          result.push({name: category, data: indexedData});
+        }
+
+        return {years, data: result};
+      })
+      .catch(handleDataApiError);
+  }
+
+  @get('/opex/table')
+  @response(200)
+  async getOpexTable() {
+    let geographyMappings = 'implementationPeriod/grant/geography/code';
+    if (this.req.query.geographyGrouping === 'Portfolio View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_PortfolioView/code';
+    } else if (this.req.query.geographyGrouping === 'Board Constituency View') {
+      geographyMappings =
+        'implementationPeriod/grant/geography_BoardConstituencyView/code';
+    }
+
+    const {startYear, endYear} = await this.opexYears();
+
+    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+      (startYear + i).toString(),
+    );
+
+    const filterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXTableFieldsMapping.urlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+    const hierarchyFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXTableFieldsMapping.hierarchyUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'budget',
+    );
+
+    const url = `${urls.FINANCIAL_INDICATORS}/${filterString}`;
+    const hierarchyUrl = `${urls.FINANCIAL_INDICATORS}/${hierarchyFilterString}`;
+
+    const hierarchy = await getHierarchy(hierarchyUrl);
+
+    return axios
+      .get(url)
+      .then(response => {
+        const data = _.orderBy(
+          _.get(response.data, OPEXTableFieldsMapping.dataPath, []).map(
+            (item: any) => ({
+              year: _.get(item, OPEXTableFieldsMapping.year),
+              category: _.get(item, OPEXTableFieldsMapping.category),
+              actual: _.get(item, OPEXTableFieldsMapping.actualAmount),
+              budget: _.get(item, OPEXTableFieldsMapping.plannedAmount),
+            }),
+          ),
+          ['year', 'category'],
+          ['asc', 'asc'],
+        );
+
+        const groupedByCategory = _.groupBy(data, 'category');
+
+        let result: OpexTableItem[] = [];
+
+        for (const category in groupedByCategory) {
+          const categoryData = groupedByCategory[category];
+          const categoryEntry: OpexTableItem = {
+            name: category,
+          };
+
+          categoryEntry._children = categoryData.map((item: any) => {
+            const child: OpexTableItem = {
+              name: item.name,
+            };
+            child[item.year] = {
+              actual: item.actual,
+              budget: item.budget,
+              variance: item.budget - item.actual,
+            };
+            if (categoryEntry[item.year]) {
+              categoryEntry[item.year].actual += item.actual;
+              categoryEntry[item.year].budget += item.budget;
+              categoryEntry[item.year].variance += item.budget - item.actual;
+            } else {
+              categoryEntry[item.year] = {
+                actual: item.actual,
+                budget: item.budget,
+                variance: item.budget - item.actual,
+              };
+            }
+            return child;
+          });
+
+          result.push(categoryEntry);
+        }
+
+        // now we can use the hierarchy to further structure the result if needed
+        result = applyHierarchy(result, hierarchy);
+
+        // check all result items and sub-children if they have children field without name field in the children object, remove the children object
+        const cleanResult = (items: OpexTableItem[]): OpexTableItem[] => {
+          return items.map(item => {
+            if (item._children) {
+              item._children = cleanResult(item._children);
+              if (item._children.every(child => !child.name)) {
+                delete item._children;
+              }
+            }
+            return item;
+          });
+        };
+        result = cleanResult(result);
+
+        return {years, data: result};
+      })
+      .catch(handleDataApiError);
+  }
+}
