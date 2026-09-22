@@ -10,6 +10,7 @@ export * from './global-search.controller';
 export * from './grants.controller';
 export * from './latestupdate.controller';
 export * from './location.controller';
+export * from './narratives.controller';
 export * from './ping.controller';
 export * from './pledgescontributions.controller';
 export * from './results.controller';

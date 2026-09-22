@@ -6,6 +6,16 @@
 
 ## What is the Data Explorer API?
 
+## Saved country narratives
+
+`GET /location/{code}/narratives?locale=en` reads a saved narrative bundle through the middleware. Set the server-only `NARRATIVE_API_URL` to the Narrative Engine base URL and, when that service requires it, set `NARRATIVE_API_KEY`. The middleware forwards only three-letter uppercase country codes and the `en` locale. It does not expose the key or proxy generation.
+
+The proxy validates the complete CountryBundle response, including evidence, calculations, sections, overview references, and metadata. Missing content returns 404, an upstream timeout returns 504, and configuration, authentication, malformed content, or other upstream failures return stable 5xx responses. The endpoint is disabled gracefully with a 503 when `NARRATIVE_API_URL` is unset.
+
+Run the focused route tests with `yarn test`. This builds the TypeScript application and boots LoopBack for each test request.
+
+Use a supported Node version, such as Node 22. `yarn build` and `yarn prettier:check` verify compilation and formatting. The inherited ESLint configuration needs legacy mode with ESLint 9: `ESLINT_USE_FLAT_CONFIG=false yarn eslint`. The narrative contract fixture was serialized by the Python Narrative Engine using synthetic source data and an offline provider; it is not editorial output from a live model.
+
 ## About the project
 
 - Website: <a href="https://data.theglobalfund.org" target="_blank">data.theglobalfund.org</a>

@@ -28,6 +28,7 @@
     "eslint:fix": "yarn run eslint --fix",
     "prestart": "yarn run rebuild",
     "start": "node -r source-map-support/register .",
+    "test": "yarn build && node --test test/*.test.js",
     "clean": "lb-clean dist *.tsbuildinfo .eslintcache",
     "rebuild": "yarn run clean && yarn run build",
     "dev": "nodemon server.js",
