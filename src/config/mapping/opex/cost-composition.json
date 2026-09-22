@@ -3,5 +3,5 @@
   "actualAmount": "actual",
   "year": "periodFrom",
   "category": "financialCategory.name",
-  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs' AND financialCategory/name ne null<filterString>)/groupby((periodFrom,financialCategory/name),aggregate(actualAmount with sum as actual))"
+  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne null<filterString>)/groupby((periodFrom,financialCategory/name),aggregate(actualAmount with sum as actual))&var=2"
 }

@@ -34,39 +34,52 @@ async function getHierarchy(url: string): Promise<HierarchyNode[]> {
     const response = await axios.get(url);
     const data = response.data.value;
     const hierarchy: Record<string, {children: Record<string, any>}> = {};
+
+    // Walk up through as many parent levels as the API returned
+    // (e.g. category.parent, category.parent.parent, ...).
+    const getAncestorNames = (category: any): string[] => {
+      const names: string[] = [];
+      let current = category.parent;
+      while (current) {
+        names.unshift(current.name);
+        current = current.parent;
+      }
+      return names;
+    };
+
+    // Walk down through as many children levels as the API returned
+    // (e.g. category.children, category.children[].children, ...).
+    const addDescendants = (
+      node: {children: Record<string, any>},
+      children: any[] | undefined,
+    ) => {
+      if (!children) return;
+      children.forEach((child: any) => {
+        if (!node.children[child.name]) {
+          node.children[child.name] = {children: {}};
+        }
+        addDescendants(node.children[child.name], child.children);
+      });
+    };
+
     data.forEach((item: any) => {
       const category = item.financialCategory;
-      if (category) {
-        const parent = category.parent ? category.parent.name : null;
-        const name = category.name;
-        if (parent) {
-          if (!hierarchy[parent]) {
-            hierarchy[parent] = {children: {}};
-          }
-          if (!hierarchy[parent].children[name]) {
-            hierarchy[parent].children[name] = {children: {}};
-          }
-          if (category.children) {
-            category.children.forEach((child: any) => {
-              if (!hierarchy[parent].children[name].children[child.name]) {
-                hierarchy[parent].children[name].children[child.name] = {
-                  children: {},
-                };
-              }
-            });
-          }
-        } else {
-          if (!hierarchy[name]) {
-            hierarchy[name] = {children: {}};
-          }
-          if (category.children) {
-            category.children.forEach((child_1: any) => {
-              if (!hierarchy[name].children[child_1.name]) {
-                hierarchy[name].children[child_1.name] = {children: {}};
-              }
-            });
-          }
+      if (!category) return;
+
+      const path = [...getAncestorNames(category), category.name];
+
+      let currentLevel = hierarchy;
+      let node: {children: Record<string, any>} | undefined;
+      path.forEach(name => {
+        if (!currentLevel[name]) {
+          currentLevel[name] = {children: {}};
         }
+        node = currentLevel[name];
+        currentLevel = currentLevel[name].children;
+      });
+
+      if (node) {
+        addDescendants(node, category.children);
       }
     });
     type HierarchyNode = {
@@ -105,6 +118,34 @@ async function getHierarchy(url: string): Promise<HierarchyNode[]> {
   }
 }
 
+const isYearKey = (key: string): boolean =>
+  key !== 'name' && key !== '_children';
+
+function sumYearValues(
+  items: OpexTableItem[],
+): Record<string, {actual: number; budget: number; variance: number}> {
+  const totals: Record<
+    string,
+    {actual: number; budget: number; variance: number}
+  > = {};
+
+  items.forEach(item => {
+    Object.keys(item).forEach(key => {
+      if (!isYearKey(key)) return;
+      const value = (item as any)[key];
+      if (!value) return;
+      if (!totals[key]) {
+        totals[key] = {actual: 0, budget: 0, variance: 0};
+      }
+      totals[key].actual += value.actual || 0;
+      totals[key].budget += value.budget || 0;
+      totals[key].variance += value.variance || 0;
+    });
+  });
+
+  return totals;
+}
+
 function applyHierarchy(
   result: OpexTableItem[],
   hierarchy: HierarchyNode[],
@@ -121,6 +162,18 @@ function applyHierarchy(
     if (node.children?.length) {
       // Hierarchy children replace the flat year rows for category nodes.
       entry._children = node.children.map(buildNode);
+
+      // Remove any pre-existing flat year values before recomputing them
+      // from the (now built) children, so parents always reflect the sum
+      // of their children.
+      Object.keys(entry).forEach(key => {
+        if (isYearKey(key)) delete (entry as any)[key];
+      });
+
+      const totals = sumYearValues(entry._children);
+      Object.keys(totals).forEach(year => {
+        (entry as any)[year] = totals[year];
+      });
     } else if (source?._children) {
       // Leaf categories retain the year/value rows created by the API data.
       entry._children = source._children.map(child => ({...child}));
@@ -280,24 +333,24 @@ export class OPEXController {
       'implementationPeriod/grant/activityArea/name',
       'budget',
     );
-    const workforceActualFilterString = await filterFinancialIndicators(
+    const workforceFilterString = await filterFinancialIndicators(
       {
         ...this.req.query,
         periodsFrom: endYear.toString(),
         periodsTo: endYear.toString(),
       },
-      OPEXStatsFieldsMapping.workforceActualUrlParams,
+      OPEXStatsFieldsMapping.workforceUrlParams,
       geographyMappings,
       'implementationPeriod/grant/activityArea/name',
       'budget',
     );
-    const nonWorkforceActualFilterString = await filterFinancialIndicators(
+    const nonWorkforceFilterString = await filterFinancialIndicators(
       {
         ...this.req.query,
         periodsFrom: endYear.toString(),
         periodsTo: endYear.toString(),
       },
-      OPEXStatsFieldsMapping.nonWorkforceActualUrlParams,
+      OPEXStatsFieldsMapping.nonWorkforceUrlParams,
       geographyMappings,
       'implementationPeriod/grant/activityArea/name',
       'budget',
@@ -342,8 +395,8 @@ export class OPEXController {
     const fullYearBudgetUrl = `${urls.FINANCIAL_INDICATORS}/${fullYearBudgetFilterString}`;
     const growthUrl = `${urls.FINANCIAL_INDICATORS}/${growthFilterString}`;
     const totalActualUrl = `${urls.FINANCIAL_INDICATORS}/${totalActualFilterString}`;
-    const workforceActualUrl = `${urls.FINANCIAL_INDICATORS}/${workforceActualFilterString}`;
-    const nonWorkforceActualUrl = `${urls.FINANCIAL_INDICATORS}/${nonWorkforceActualFilterString}`;
+    const workforceUrl = `${urls.FINANCIAL_INDICATORS}/${workforceFilterString}`;
+    const nonWorkforceUrl = `${urls.FINANCIAL_INDICATORS}/${nonWorkforceFilterString}`;
     const cumulativeTotalBudgetAbsorptionUrl = `${urls.FINANCIAL_INDICATORS}/${cumulativeTotalBudgetAbsorptionFilterString}`;
     const cumulativeTotalBudgetWorkforceAbsorptionUrl = `${urls.FINANCIAL_INDICATORS}/${cumulativeTotalBudgetWorkforceAbsorptionFilterString}`;
     const cumulativeTotalBudgetNonWorkforceAbsorptionUrl = `${urls.FINANCIAL_INDICATORS}/${cumulativeTotalBudgetNonWorkforceAbsorptionFilterString}`;
@@ -353,8 +406,8 @@ export class OPEXController {
         axios.get(fullYearBudgetUrl),
         axios.get(growthUrl),
         axios.get(totalActualUrl),
-        axios.get(workforceActualUrl),
-        axios.get(nonWorkforceActualUrl),
+        axios.get(workforceUrl),
+        axios.get(nonWorkforceUrl),
         axios.get(cumulativeTotalBudgetAbsorptionUrl),
         axios.get(cumulativeTotalBudgetWorkforceAbsorptionUrl),
         axios.get(cumulativeTotalBudgetNonWorkforceAbsorptionUrl),
@@ -396,11 +449,29 @@ export class OPEXController {
               `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
               0,
             );
+            const workforceBudget = _.get(
+              resp4.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.plannedAmount}]`,
+              0,
+            );
+            const workforcePercentage =
+              workforceBudget && workforceActual
+                ? (workforceActual / workforceBudget) * 100
+                : 0;
             const nonWorkforceActual = _.get(
               resp5.data,
               `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
               0,
             );
+            const nonWorkforceBudget = _.get(
+              resp5.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.plannedAmount}]`,
+              0,
+            );
+            const nonWorkforcePercentage =
+              nonWorkforceBudget && nonWorkforceActual
+                ? (nonWorkforceActual / nonWorkforceBudget) * 100
+                : 0;
             const cumulativeTotalBudget = _.get(
               resp6.data,
               `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
@@ -413,40 +484,50 @@ export class OPEXController {
             );
             const cumulativeTotalBudgetWorkforceAbsorption = _.get(
               resp7.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.plannedAmount}]`,
+              0,
+            );
+            const cumulativeTotalValueWorkforceAbsorption = _.get(
+              resp7.data,
               `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
               0,
             );
             const cumulativeTotalBudgetNonWorkforceAbsorption = _.get(
               resp8.data,
+              `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.plannedAmount}]`,
+              0,
+            );
+            const cumulativeTotalValueNonWorkforceAbsorption = _.get(
+              resp8.data,
               `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.actualAmount}]`,
               0,
             );
             const cumulativeTotalBudgetWorkforceAbsorptionPercentage =
-              cumulativeTotalBudgetWorkforceAbsorption && cumulativeTotalValue
-                ? (cumulativeTotalBudgetWorkforceAbsorption /
-                    cumulativeTotalValue) *
+              cumulativeTotalBudgetWorkforceAbsorption &&
+              cumulativeTotalValueWorkforceAbsorption
+                ? (cumulativeTotalValueWorkforceAbsorption /
+                    cumulativeTotalBudgetWorkforceAbsorption) *
                   100
                 : 0;
             const cumulativeTotalBudgetNonWorkforceAbsorptionPercentage =
               cumulativeTotalBudgetNonWorkforceAbsorption &&
-              cumulativeTotalValue
-                ? (cumulativeTotalBudgetNonWorkforceAbsorption /
-                    cumulativeTotalValue) *
+              cumulativeTotalValueNonWorkforceAbsorption
+                ? (cumulativeTotalValueNonWorkforceAbsorption /
+                    cumulativeTotalBudgetNonWorkforceAbsorption) *
                   100
                 : 0;
 
             return {
               budget: fullYearBudget,
-              budget_million: fullYearBudget / 1_000_000,
               forecast: fullYearForecast,
-              forecast_million: fullYearForecast / 1_000_000,
               growthStartYearValue: growthStartYearBudget,
               totalActual: totalActual,
-              totalActual_million: totalActual / 1_000_000,
               workforceActual: workforceActual,
-              workforceActual_million: workforceActual / 1_000_000,
+              workforceBudget: workforceBudget,
+              workforcePercentage: workforcePercentage,
               nonWorkforceActual: nonWorkforceActual,
-              nonWorkforceActual_million: nonWorkforceActual / 1_000_000,
+              nonWorkforceBudget: nonWorkforceBudget,
+              nonWorkforcePercentage: nonWorkforcePercentage,
               totalActualPercentage:
                 fullYearBudget && totalActual
                   ? (totalActual / fullYearBudget) * 100
@@ -458,23 +539,21 @@ export class OPEXController {
                     100
                   : 0,
               cumulativeTotalBudget: cumulativeTotalBudget,
-              cumulativeTotalBudget_million: cumulativeTotalBudget / 1_000_000,
               cumulativeTotalValue: cumulativeTotalValue,
-              cumulativeTotalValue_million: cumulativeTotalValue / 1_000_000,
               cumulativeTotalBudgetAbsorptionPercentage:
                 cumulativeTotalBudget && cumulativeTotalValue
-                  ? (cumulativeTotalBudget / cumulativeTotalValue) * 100
+                  ? (cumulativeTotalValue / cumulativeTotalBudget) * 100
                   : 0,
               cumulativeTotalBudgetWorkforceAbsorption:
                 cumulativeTotalBudgetWorkforceAbsorption,
-              cumulativeTotalBudgetWorkforceAbsorption_million:
-                cumulativeTotalBudgetWorkforceAbsorption / 1_000_000,
+              cumulativeTotalValueWorkforceAbsorption:
+                cumulativeTotalValueWorkforceAbsorption,
               cumulativeTotalBudgetWorkforceAbsorptionPercentage:
                 cumulativeTotalBudgetWorkforceAbsorptionPercentage,
               cumulativeTotalBudgetNonWorkforceAbsorption:
                 cumulativeTotalBudgetNonWorkforceAbsorption,
-              cumulativeTotalBudgetNonWorkforceAbsorption_million:
-                cumulativeTotalBudgetNonWorkforceAbsorption / 1_000_000,
+              cumulativeTotalValueNonWorkforceAbsorption:
+                cumulativeTotalValueNonWorkforceAbsorption,
               cumulativeTotalBudgetNonWorkforceAbsorptionPercentage:
                 cumulativeTotalBudgetNonWorkforceAbsorptionPercentage,
             };
@@ -559,9 +638,11 @@ export class OPEXController {
       .catch(handleDataApiError);
   }
 
-  @get('/opex/efficiency')
+  @get('/opex/efficiency/{type}')
   @response(200)
-  async getOpexEfficiency() {
+  async getOpexEfficiency(
+    @param.path.string('type') type: 'pledge' | 'disbursement',
+  ) {
     let geographyMappings = 'implementationPeriod/grant/geography/code';
     if (this.req.query.geographyGrouping === 'Portfolio View') {
       geographyMappings =
@@ -584,12 +665,47 @@ export class OPEXController {
       value: number; // Pledge amount
       value1: number; // Contribution amount
       cycle: string; // Cycle name like "2001-2005"
-    }[] = (await axios.get(pledgesUrl)).data?.data ?? [];
+    }[] =
+      type === 'pledge' ? ((await axios.get(pledgesUrl)).data?.data ?? []) : [];
 
     pledgesByCycle.forEach((pledge, i) => {
       pledge.cycle = pledge.name;
       pledge.name = `GC${i}·${pledge.name}`;
     });
+
+    const disbursementsFilterString = await filterFinancialIndicators(
+      {
+        ...this.req.query,
+        periodsFrom: years.join(','),
+        periodsTo: years.join(','),
+      },
+      OPEXEfficiencyFieldsMapping.disbursementsUrlParams,
+      geographyMappings,
+      'implementationPeriod/grant/activityArea/name',
+      'disbursement',
+    );
+
+    const disbursementsUrl = `${urls.FINANCIAL_INDICATORS}/${disbursementsFilterString}`;
+    const disbursementsData =
+      type === 'disbursement'
+        ? await axios.get(disbursementsUrl).then(response => {
+            return _.get(
+              response.data,
+              OPEXEfficiencyFieldsMapping.dataPath,
+              [],
+            ).map((item: any) => {
+              const period = _.get(
+                item,
+                OPEXEfficiencyFieldsMapping.disbursementPeriod,
+              );
+              const actual = _.get(
+                item,
+                OPEXEfficiencyFieldsMapping.actualAmount,
+              );
+              return {period, actual};
+            });
+          })
+        : [];
 
     const filterString = await filterFinancialIndicators(
       {
@@ -597,7 +713,10 @@ export class OPEXController {
         periodsFrom: years.join(','),
         periodsTo: years.join(','),
       },
-      OPEXEfficiencyFieldsMapping.urlParams,
+      OPEXEfficiencyFieldsMapping.urlParams.replace(
+        '<periodField>',
+        OPEXEfficiencyFieldsMapping[`${type}Period`],
+      ),
       geographyMappings,
       'implementationPeriod/grant/activityArea/name',
       'budget',
@@ -608,38 +727,95 @@ export class OPEXController {
     return axios
       .get(url)
       .then(response => {
-        const data = _.orderBy(
-          _.get(response.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
-            (item: any) => ({
-              year: _.get(item, OPEXEfficiencyFieldsMapping.year),
-              actual: _.get(item, OPEXEfficiencyFieldsMapping.actualAmount),
-            }),
-          ),
-          ['year'],
-          ['asc'],
-        );
-
-        const efficiencyByCycle = pledgesByCycle.map(pledge => {
-          const actualForCycle = data
-            .filter(
-              item =>
-                parseInt(item.year, 10) >=
-                  parseInt(pledge.cycle.split('-')[0], 10) &&
-                parseInt(item.year, 10) <=
-                  parseInt(pledge.cycle.split('-')[1], 10),
-            )
-            .reduce((sum, item) => sum + item.actual, 0);
+        if (type === 'pledge') {
+          const data = _.orderBy(
+            _.get(response.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
+              (item: any) => {
+                const period = _.get(
+                  item,
+                  OPEXEfficiencyFieldsMapping.pledgePeriod,
+                );
+                const actual = _.get(
+                  item,
+                  OPEXEfficiencyFieldsMapping.actualAmount,
+                );
+                const pledge = _.find(pledgesByCycle, {cycle: period});
+                const gcNumber = (pledge?.name ?? '')
+                  .split('·')[0]
+                  .replace('GC', '');
+                return {
+                  name: period,
+                  gcNumber,
+                  pledge: pledge?.value ?? 0,
+                  actual,
+                  efficiency: (actual / (pledge?.value ?? 1)) * 100,
+                };
+              },
+            ),
+            item => item.name.split('-')[0],
+            ['asc'],
+          );
+          const cumulativeEfficiency = data.reduce(
+            (acc, item) => {
+              acc.actual += item.actual;
+              acc.pledge += item.pledge;
+              return acc;
+            },
+            {actual: 0, pledge: 0},
+          );
           return {
-            name: pledge.name,
-            pledge: pledge.value,
-            actual: actualForCycle,
-            efficiency: actualForCycle / pledge.value,
+            items: data,
+            cumulativeEfficiency:
+              (cumulativeEfficiency.actual /
+                (cumulativeEfficiency.pledge || 1)) *
+              100,
+            cumulativeActual: cumulativeEfficiency.actual,
+            cumulativePledge: cumulativeEfficiency.pledge,
           };
-        });
-
-        // clear any 0 valued efficiencies
-
-        return efficiencyByCycle.filter(item => item.efficiency !== 0);
+        }
+        if (type === 'disbursement') {
+          const data = _.orderBy(
+            _.get(response.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
+              (item: any) => {
+                const period = _.get(
+                  item,
+                  OPEXEfficiencyFieldsMapping.disbursementPeriod,
+                );
+                const actual = _.get(
+                  item,
+                  OPEXEfficiencyFieldsMapping.actualAmount,
+                );
+                const disbursement = _.find(disbursementsData, {period});
+                return {
+                  name: period,
+                  disbursement: disbursement?.actual ?? 0,
+                  actual,
+                  efficiency: (actual / (disbursement?.actual ?? 1)) * 100,
+                };
+              },
+            ),
+            item => item.name.split('-')[0],
+            ['asc'],
+          );
+          const cumulativeEfficiency = data.reduce(
+            (acc, item) => {
+              acc.actual += item.actual;
+              acc.disbursement += item.disbursement;
+              return acc;
+            },
+            {actual: 0, disbursement: 0},
+          );
+          return {
+            items: data,
+            cumulativeEfficiency:
+              (cumulativeEfficiency.actual /
+                (cumulativeEfficiency.disbursement || 1)) *
+              100,
+            cumulativeActual: cumulativeEfficiency.actual,
+            cumulativeDisbursement: cumulativeEfficiency.disbursement,
+          };
+        }
+        return [];
       })
       .catch(handleDataApiError);
   }
@@ -728,7 +904,7 @@ export class OPEXController {
       .all([axios.get(url)])
       .then(
         axios.spread(data => {
-          const costComposition = _.orderBy(
+          let costComposition = _.orderBy(
             _.get(
               data.data,
               `[${OPEXCostCompositionFieldsMapping.dataPath}]`,
@@ -751,6 +927,34 @@ export class OPEXController {
           );
           const groupedByYear = _.groupBy(costComposition, 'year');
           const years = Object.keys(groupedByYear).sort();
+          if (
+            costComposition.some(
+              item => item.category === 'Individual / Temp Consultants',
+            ) &&
+            costComposition.some(item => item.category === 'Staff')
+          ) {
+            const items = _.filter(
+              costComposition,
+              item =>
+                item.category === 'Individual / Temp Consultants' ||
+                item.category === 'Staff',
+            );
+            years.forEach(year => {
+              const yearItems = _.filter(items, item => item.year === year);
+              if (yearItems.length > 0) {
+                const mergedYearItem = _.merge({}, ...yearItems);
+                mergedYearItem.category = 'Workforce';
+                costComposition = costComposition.filter(
+                  item =>
+                    !(
+                      item.category === 'Individual / Temp Consultants' &&
+                      item.year === year
+                    ) && !(item.category === 'Staff' && item.year === year),
+                );
+                costComposition.push(mergedYearItem);
+              }
+            });
+          }
           const values: number[][] = years.map(year =>
             groupedByYear[year].map(item => item.actual),
           );
@@ -840,6 +1044,17 @@ export class OPEXController {
             ['asc', 'asc'],
           );
           const groupedByCategory = _.groupBy(keyCosts, 'category');
+          if (
+            groupedByCategory['Individual / Temp Consultants'] &&
+            groupedByCategory['Staff']
+          ) {
+            groupedByCategory['Workforce'] = _.merge(
+              groupedByCategory['Individual / Temp Consultants'],
+              groupedByCategory['Staff'],
+            );
+            delete groupedByCategory['Individual / Temp Consultants'];
+            delete groupedByCategory['Staff'];
+          }
           const items: {
             name: string;
             values: number[];
@@ -953,7 +1168,7 @@ export class OPEXController {
     return axios
       .get(url)
       .then(response => {
-        const data = _.orderBy(
+        let data = _.orderBy(
           _.get(response.data, OPEXIndexedTrendsFieldsMapping.dataPath, []).map(
             (item: any) => ({
               year: _.get(item, OPEXIndexedTrendsFieldsMapping.year),
@@ -964,6 +1179,41 @@ export class OPEXController {
           ['year', 'category'],
           ['asc', 'asc'],
         );
+
+        if (
+          _.some(
+            data,
+            item =>
+              item.category === 'Individual / Temp Consultants' ||
+              item.category === 'Staff',
+          )
+        ) {
+          const items = _.filter(
+            data,
+            item =>
+              item.category === 'Individual / Temp Consultants' ||
+              item.category === 'Staff',
+          );
+          const groupedByYear = _.groupBy(items, 'year');
+          for (const year in groupedByYear) {
+            const yearItems = _.filter(items, item => item.year === year);
+            if (yearItems.length > 0) {
+              const mergedYearItem = _.merge({}, ...yearItems);
+              mergedYearItem.category = 'Workforce';
+              data = data.filter(
+                item =>
+                  !(
+                    (item.category === 'Individual / Temp Consultants' ||
+                      item.category === 'Staff') &&
+                    item.year === year
+                  ),
+              );
+              data.push(mergedYearItem);
+            }
+          }
+        }
+
+        data = _.orderBy(data, ['year', 'category'], ['asc', 'asc']);
 
         const groupedByCategory = _.groupBy(data, 'category');
 
@@ -1097,6 +1347,92 @@ export class OPEXController {
           });
         };
         result = cleanResult(result);
+
+        const TOTAL_OPERATING_COSTS_NAME = 'Total operating costs';
+        const TOTAL_NON_RECURRING_COSTS_NAME = 'Total Non-recurring costs';
+        const OPEX_BEFORE_NON_RECURRING_COSTS_NAME =
+          'Opex before non-recurring costs';
+        const SUMMARY_ROW_NAMES = [
+          TOTAL_OPERATING_COSTS_NAME,
+          TOTAL_NON_RECURRING_COSTS_NAME,
+          OPEX_BEFORE_NON_RECURRING_COSTS_NAME,
+        ];
+        const NON_RECURRING_COST_CATEGORIES = [
+          'Professional fees',
+          'Travel',
+          'Meetings',
+          'Communications',
+          'Office Infrastructure',
+          'Board Constituency',
+          'Depreciation',
+          'External Co-Funding',
+        ];
+        const OPEX_BEFORE_NON_RECURRING_CATEGORIES = [
+          'Individual / Temp Consultants',
+          'Staff',
+        ];
+
+        // applyHierarchy may have already surfaced a summary row (e.g.
+        // extracted from the source hierarchy) at the end of the top-level
+        // result; exclude any of them so they aren't summed into themselves.
+        const resultWithoutExistingSummaryRows = result.filter(
+          item => !SUMMARY_ROW_NAMES.includes(item.name),
+        );
+
+        // Categories can live at any depth of the hierarchy, so search the
+        // whole tree (not just the top level) to find them by name.
+        const findItemsByNames = (
+          items: OpexTableItem[],
+          names: string[],
+        ): OpexTableItem[] => {
+          const remaining = new Set(names);
+          const found: OpexTableItem[] = [];
+
+          const search = (nodes: OpexTableItem[]) => {
+            nodes.forEach(node => {
+              if (remaining.has(node.name)) {
+                found.push(node);
+                remaining.delete(node.name);
+              }
+              if (node._children?.length) {
+                search(node._children);
+              }
+            });
+          };
+
+          search(items);
+          return found;
+        };
+
+        const nonRecurringCostItems = findItemsByNames(
+          resultWithoutExistingSummaryRows,
+          NON_RECURRING_COST_CATEGORIES,
+        );
+        const totalNonRecurringCosts: OpexTableItem = {
+          name: TOTAL_NON_RECURRING_COSTS_NAME,
+          ...sumYearValues(nonRecurringCostItems),
+        };
+
+        const opexBeforeNonRecurringItems = findItemsByNames(
+          resultWithoutExistingSummaryRows,
+          OPEX_BEFORE_NON_RECURRING_CATEGORIES,
+        );
+        const opexBeforeNonRecurringCosts: OpexTableItem = {
+          name: OPEX_BEFORE_NON_RECURRING_COSTS_NAME,
+          ...sumYearValues(opexBeforeNonRecurringItems),
+        };
+
+        const totalOperatingCosts: OpexTableItem = {
+          name: TOTAL_OPERATING_COSTS_NAME,
+          ...sumYearValues(resultWithoutExistingSummaryRows),
+        };
+
+        result = [
+          ...resultWithoutExistingSummaryRows,
+          totalNonRecurringCosts,
+          opexBeforeNonRecurringCosts,
+          totalOperatingCosts,
+        ];
 
         return {years, data: result};
       })
