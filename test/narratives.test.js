@@ -16,6 +16,20 @@ test('accepts Python serialized contracts including exponent decimals', () => {
   assert.equal(isCountryBundle(scientific, 'MOZ'), false);
 });
 
+test('accepts optional approved paragraph headings and legacy claims', () => {
+  const headed = structuredClone(realContract);
+  const claim = headed.sections.find(section => section.status === 'ready')
+    .claims[0];
+  claim.heading = 'Progress';
+  assert.equal(isCountryBundle(headed, 'MOZ'), true);
+  claim.heading = null;
+  assert.equal(isCountryBundle(headed, 'MOZ'), true);
+  delete claim.heading;
+  assert.equal(isCountryBundle(headed, 'MOZ'), true);
+  claim.heading = '<h3>Progress</h3>';
+  assert.equal(isCountryBundle(headed, 'MOZ'), false);
+});
+
 test('rejects malformed nested evidence and unresolved references', () => {
   const mutations = [
     value => {
@@ -108,6 +122,25 @@ test('proxies and returns a validated CountryBundle through the actual route', a
   assert.equal(request.options.maxContentLength, 2000000);
   assert.equal(request.options.maxBodyLength, 2000000);
   assert.equal(request.options.headers.Authorization, 'server-secret');
+});
+
+test('proxies approved, null, and legacy paragraph headings through the route', async () => {
+  const data = structuredClone(realContract);
+  const claim = data.sections.find(section => section.status === 'ready')
+    .claims[0];
+  axios.get = async () => ({status: 200, data});
+  claim.heading = 'Challenges';
+  let response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
+  assert.equal(response.status, 200);
+  claim.heading = null;
+  response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
+  assert.equal(response.status, 200);
+  delete claim.heading;
+  response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
+  assert.equal(response.status, 200);
+  claim.heading = 'Raw HTML is not an approved heading';
+  response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
+  assert.equal(response.status, 502);
 });
 
 test('maps missing content and malformed bundles without exposing credentials', async () => {

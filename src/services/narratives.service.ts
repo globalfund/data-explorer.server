@@ -28,6 +28,12 @@ const IDENTIFIER = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 const VERSION = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
 const HASH = /^[0-9a-f]{64}$/;
 const HTTP_URL = /^https?:\/\/[^\s]+$/;
+const PARAGRAPH_HEADINGS = [
+  'Introduction',
+  'Progress',
+  'Challenges',
+  'Global Fund investments',
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -146,8 +152,12 @@ function isEvidence(value: unknown, country: string): boolean {
 function isClaim(value: unknown): boolean {
   return (
     isRecord(value) &&
-    hasOnly(value, ['text', 'evidence_ids']) &&
+    hasOnly(value, ['text', 'evidence_ids', 'heading']) &&
     isText(value.text) &&
+    (value.heading == null ||
+      PARAGRAPH_HEADINGS.includes(
+        value.heading as (typeof PARAGRAPH_HEADINGS)[number],
+      )) &&
     Array.isArray(value.evidence_ids) &&
     value.evidence_ids.length > 0 &&
     value.evidence_ids.every(
