@@ -103,12 +103,14 @@ export class ResultsController {
                 groupedByComponent,
                 (componentData, component) => ({
                   name: component,
-                  _children: componentData.map((item: any) => ({
-                    name: _.get(item, ResultsTableMappingFields.name, ''),
-                    value: _.get(item, ResultsTableMappingFields.value, 0),
-                  })),
+                  _children: componentData
+                    .map((item: any) => ({
+                      name: _.get(item, ResultsTableMappingFields.name, ''),
+                      value: _.get(item, ResultsTableMappingFields.value, 0),
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name)),
                 }),
-              ),
+              ).sort((a, b) => a.name.localeCompare(b.name)),
             };
           }).reverse(),
         };
@@ -154,35 +156,37 @@ export class ResultsController {
                 componentData,
                 ResultsGroupedByComponentMappingFields.name,
               ),
-            ).map(name => {
-              const items = _.filter(
-                componentData,
-                item =>
-                  _.get(
-                    item,
-                    ResultsGroupedByComponentMappingFields.name,
-                    '',
-                  ) === name,
-              );
-              const value = _.sumBy(
-                items,
-                ResultsGroupedByComponentMappingFields.value,
-              );
-              const numOfCountries = Object.keys(
-                _.groupBy(
+            )
+              .map(name => {
+                const items = _.filter(
+                  componentData,
+                  item =>
+                    _.get(
+                      item,
+                      ResultsGroupedByComponentMappingFields.name,
+                      '',
+                    ) === name,
+                );
+                const value = _.sumBy(
                   items,
-                  ResultsGroupedByComponentMappingFields.geography,
-                ),
-              ).length;
-              return {name, value, numOfCountries};
-            }),
+                  ResultsGroupedByComponentMappingFields.value,
+                );
+                const numOfCountries = Object.keys(
+                  _.groupBy(
+                    items,
+                    ResultsGroupedByComponentMappingFields.geography,
+                  ),
+                ).length;
+                return {name, value, numOfCountries};
+              })
+              .sort((a, b) => a.name.localeCompare(b.name)),
             numOfCountries: Object.keys(
               _.groupBy(
                 componentData,
                 ResultsGroupedByComponentMappingFields.geography,
               ),
             ).length,
-          })),
+          })).sort((a, b) => a.name.localeCompare(b.name)),
         };
       })
       .catch(handleDataApiError);
