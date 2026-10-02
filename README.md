@@ -87,3 +87,11 @@ chore: Changes to the build process or auxiliary tools and libraries such as doc
 - Avoid huge code commits where the difference can not even be rendered by browser based web apps (Github for example). Smaller commits make it much easier to understand why and how the changes were made, why (if) it results in certain bugs and etc.
 - If there's a reason to commit code that is commented out (there usually should be none), always leave a "FIXME" or "TODO" comment so it's clear for other developers why this was done.
 - Automatic code quality / testing checks (continuous integration tools) are implemented to check all these things automatically when pushing / merging new branches. Quality is the key!
+
+## Saved page narratives
+
+`GET /narratives/pages/{page_type}/{page_id}?locale=en&scope_key=default` reads the saved v2 page bundle using the same server-held Narrative Engine credentials and bounded transport as country reads. For the pilot, use `/narratives/pages/resource-mobilization/global`. Only `en` is supported. Page type and scope use contract identifiers; page IDs support letters, numbers, dots, underscores, colons and hyphens within 128 characters, excluding traversal sequences and encoded separators.
+
+The response must match the requested page identity and scope. Validation checks the public profile presentation, ordered sections, profile-specific headings, optional summary contributors, source and calculation references, compatible calculation operands and safe HTTP(S) source URLs without embedded credentials. The proxy reads saved content only and returns the existing stable errors. Country v1 shapes and paragraph-heading behavior remain compatible.
+
+The page fixture is the actual B28 NE serializer artifact with synthetic prose over verified raw source data. See `test/fixtures/page-bundle-resource-mobilization.md` for provenance. Full legacy-mode ESLint currently includes inherited source violations and JS tests excluded by its TypeScript project; scoped TypeScript ESLint and explicit Prettier checks can verify narrative changes independently.

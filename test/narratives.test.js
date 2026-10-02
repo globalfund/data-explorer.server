@@ -30,6 +30,20 @@ test('accepts optional approved paragraph headings and legacy claims', () => {
   assert.equal(isCountryBundle(headed, 'MOZ'), false);
 });
 
+test('rejects array headings that stringify to an approved v1 heading', () => {
+  const data = structuredClone(realContract);
+  data.sections.find(section => section.status === 'ready').claims[0].heading =
+    ['Progress'];
+  assert.equal(isCountryBundle(data, 'MOZ'), false);
+});
+
+test('preserves legacy v1 source kind and hash coercion', () => {
+  const data = structuredClone(realContract);
+  data.sources[0].kind = [data.sources[0].kind];
+  data.sources[0].content_hash = [data.sources[0].content_hash];
+  assert.equal(isCountryBundle(data, 'MOZ'), true);
+});
+
 test('rejects malformed nested evidence and unresolved references', () => {
   const mutations = [
     value => {
@@ -196,4 +210,18 @@ test('is disabled cleanly when the service URL is not configured', async () => {
   delete process.env.NARRATIVE_API_URL;
   const response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
   assert.equal(response.status, 503);
+});
+
+test('v1 transport remains bounded for oversized responses and service failures', async () => {
+  process.env.NARRATIVE_API_URL = 'http://narrative.internal';
+  for (const code of ['ERR_BAD_RESPONSE', 'ECONNRESET']) {
+    axios.get = async () => {
+      const error = new Error('do-not-return');
+      error.code = code;
+      throw error;
+    };
+    const response = await fetch(`${baseUrl}/location/MOZ/narratives`);
+    assert.equal(response.status, 502);
+    assert.doesNotMatch(await response.text(), /do-not-return/);
+  }
 });
