@@ -13,8 +13,25 @@ export class NarrativesController {
     @param.path.string('code') code: string,
     @param.query.string('locale', {required: false}) locale = 'en',
   ): Promise<unknown> {
+    return this.savedRead(() => this.narrativesService.get(code, locale));
+  }
+
+  @get('/narratives/pages/{page_type}/{page_id}')
+  @response(200, {description: 'Saved page narrative bundle'})
+  async getPageNarratives(
+    @param.path.string('page_type') pageType: string,
+    @param.path.string('page_id') pageId: string,
+    @param.query.string('locale', {required: false}) locale = 'en',
+    @param.query.string('scope_key', {required: false}) scopeKey = 'default',
+  ): Promise<unknown> {
+    return this.savedRead(() =>
+      this.narrativesService.getPage(pageType, pageId, locale, scopeKey),
+    );
+  }
+
+  private async savedRead(read: () => Promise<unknown>): Promise<unknown> {
     try {
-      return await this.narrativesService.get(code, locale);
+      return await read();
     } catch (error) {
       if (!(error instanceof NarrativeServiceError)) throw error;
       const messages: Record<string, string> = {
