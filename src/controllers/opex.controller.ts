@@ -925,42 +925,39 @@ export class OPEXController {
             ['year', 'category'],
             ['asc', 'asc'],
           );
-          const groupedByYear = _.groupBy(costComposition, 'year');
-          const years = Object.keys(groupedByYear).sort();
           if (
             costComposition.some(
               item => item.category === 'Individual / Temp Consultants',
             ) &&
             costComposition.some(item => item.category === 'Staff')
           ) {
-            const items = _.filter(
-              costComposition,
-              item =>
+            costComposition = costComposition.map(item => ({
+              ...item,
+              category:
                 item.category === 'Individual / Temp Consultants' ||
-                item.category === 'Staff',
-            );
-            years.forEach(year => {
-              const yearItems = _.filter(items, item => item.year === year);
-              if (yearItems.length > 0) {
-                const mergedYearItem = _.merge({}, ...yearItems);
-                mergedYearItem.category = 'Workforce';
-                costComposition = costComposition.filter(
-                  item =>
-                    !(
-                      item.category === 'Individual / Temp Consultants' &&
-                      item.year === year
-                    ) && !(item.category === 'Staff' && item.year === year),
-                );
-                costComposition.push(mergedYearItem);
-              }
-            });
+                item.category === 'Staff'
+                  ? 'Workforce'
+                  : item.category,
+            }));
           }
-          const values: number[][] = years.map(year =>
-            groupedByYear[year].map(item => item.actual),
+          const groupedByYear = _.groupBy(costComposition, 'year');
+          const years = Object.keys(groupedByYear).sort();
+          const totalsByCategory = _.mapValues(
+            _.groupBy(costComposition, 'category'),
+            items => _.sumBy(items, 'actual'),
           );
-          const categories = Array.from(
-            new Set(costComposition.map(item => item.category)),
+          const categories = _.orderBy(
+            Object.keys(totalsByCategory),
+            [category => totalsByCategory[category], category => category],
+            ['desc', 'asc'],
           );
+          const values: number[][] = years.map(year => {
+            const actualsByCategory = _.mapValues(
+              _.groupBy(groupedByYear[year], 'category'),
+              items => _.sumBy(items, 'actual'),
+            );
+            return categories.map(category => actualsByCategory[category] ?? 0);
+          });
           return {years, values, categories};
         }),
       )
