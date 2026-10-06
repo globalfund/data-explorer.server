@@ -1276,6 +1276,13 @@ export class OPEXController {
 
     const hierarchy = await getHierarchy(hierarchyUrl);
 
+    // remove any children from "Total Non-recurring costs"
+    hierarchy.forEach(item => {
+      if (item.name === 'Total Non-recurring costs' && item.children) {
+        delete item.children;
+      }
+    });
+
     return axios
       .get(url)
       .then(response => {
