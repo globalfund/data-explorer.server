@@ -1345,91 +1345,91 @@ export class OPEXController {
         };
         result = cleanResult(result);
 
-        const TOTAL_OPERATING_COSTS_NAME = 'Total operating costs';
-        const TOTAL_NON_RECURRING_COSTS_NAME = 'Total Non-recurring costs';
-        const OPEX_BEFORE_NON_RECURRING_COSTS_NAME =
-          'Opex before non-recurring costs';
-        const SUMMARY_ROW_NAMES = [
-          TOTAL_OPERATING_COSTS_NAME,
-          TOTAL_NON_RECURRING_COSTS_NAME,
-          OPEX_BEFORE_NON_RECURRING_COSTS_NAME,
-        ];
-        const NON_RECURRING_COST_CATEGORIES = [
-          'Professional fees',
-          'Travel',
-          'Meetings',
-          'Communications',
-          'Office Infrastructure',
-          'Board Constituency',
-          'Depreciation',
-          'External Co-Funding',
-        ];
-        const OPEX_BEFORE_NON_RECURRING_CATEGORIES = [
-          'Individual / Temp Consultants',
-          'Staff',
-        ];
+        // const TOTAL_OPERATING_COSTS_NAME = 'Total operating costs';
+        // const TOTAL_NON_RECURRING_COSTS_NAME = 'Total Non-recurring costs';
+        // const OPEX_BEFORE_NON_RECURRING_COSTS_NAME =
+        //   'Opex before non-recurring costs';
+        // const SUMMARY_ROW_NAMES = [
+        //   TOTAL_OPERATING_COSTS_NAME,
+        //   TOTAL_NON_RECURRING_COSTS_NAME,
+        //   OPEX_BEFORE_NON_RECURRING_COSTS_NAME,
+        // ];
+        // const NON_RECURRING_COST_CATEGORIES = [
+        //   'Professional fees',
+        //   'Travel',
+        //   'Meetings',
+        //   'Communications',
+        //   'Office Infrastructure',
+        //   'Board Constituency',
+        //   'Depreciation',
+        //   'External Co-Funding',
+        // ];
+        // const OPEX_BEFORE_NON_RECURRING_CATEGORIES = [
+        //   'Individual / Temp Consultants',
+        //   'Staff',
+        // ];
 
-        // applyHierarchy may have already surfaced a summary row (e.g.
-        // extracted from the source hierarchy) at the end of the top-level
-        // result; exclude any of them so they aren't summed into themselves.
-        const resultWithoutExistingSummaryRows = result.filter(
-          item => !SUMMARY_ROW_NAMES.includes(item.name),
-        );
+        // // applyHierarchy may have already surfaced a summary row (e.g.
+        // // extracted from the source hierarchy) at the end of the top-level
+        // // result; exclude any of them so they aren't summed into themselves.
+        // const resultWithoutExistingSummaryRows = result.filter(
+        //   item => !SUMMARY_ROW_NAMES.includes(item.name),
+        // );
 
-        // Categories can live at any depth of the hierarchy, so search the
-        // whole tree (not just the top level) to find them by name.
-        const findItemsByNames = (
-          items: OpexTableItem[],
-          names: string[],
-        ): OpexTableItem[] => {
-          const remaining = new Set(names);
-          const found: OpexTableItem[] = [];
+        // // Categories can live at any depth of the hierarchy, so search the
+        // // whole tree (not just the top level) to find them by name.
+        // const findItemsByNames = (
+        //   items: OpexTableItem[],
+        //   names: string[],
+        // ): OpexTableItem[] => {
+        //   const remaining = new Set(names);
+        //   const found: OpexTableItem[] = [];
 
-          const search = (nodes: OpexTableItem[]) => {
-            nodes.forEach(node => {
-              if (remaining.has(node.name)) {
-                found.push(node);
-                remaining.delete(node.name);
-              }
-              if (node._children?.length) {
-                search(node._children);
-              }
-            });
-          };
+        //   const search = (nodes: OpexTableItem[]) => {
+        //     nodes.forEach(node => {
+        //       if (remaining.has(node.name)) {
+        //         found.push(node);
+        //         remaining.delete(node.name);
+        //       }
+        //       if (node._children?.length) {
+        //         search(node._children);
+        //       }
+        //     });
+        //   };
 
-          search(items);
-          return found;
-        };
+        //   search(items);
+        //   return found;
+        // };
 
-        const nonRecurringCostItems = findItemsByNames(
-          resultWithoutExistingSummaryRows,
-          NON_RECURRING_COST_CATEGORIES,
-        );
-        const totalNonRecurringCosts: OpexTableItem = {
-          name: TOTAL_NON_RECURRING_COSTS_NAME,
-          ...sumYearValues(nonRecurringCostItems),
-        };
+        // const nonRecurringCostItems = findItemsByNames(
+        //   resultWithoutExistingSummaryRows,
+        //   NON_RECURRING_COST_CATEGORIES,
+        // );
+        // const totalNonRecurringCosts: OpexTableItem = {
+        //   name: TOTAL_NON_RECURRING_COSTS_NAME,
+        //   ...sumYearValues(nonRecurringCostItems),
+        // };
 
-        const opexBeforeNonRecurringItems = findItemsByNames(
-          resultWithoutExistingSummaryRows,
-          OPEX_BEFORE_NON_RECURRING_CATEGORIES,
-        );
-        const opexBeforeNonRecurringCosts: OpexTableItem = {
-          name: OPEX_BEFORE_NON_RECURRING_COSTS_NAME,
-          ...sumYearValues(opexBeforeNonRecurringItems),
-        };
+        // const opexBeforeNonRecurringItems = findItemsByNames(
+        //   resultWithoutExistingSummaryRows,
+        //   OPEX_BEFORE_NON_RECURRING_CATEGORIES,
+        // );
+        // const opexBeforeNonRecurringCosts: OpexTableItem = {
+        //   name: OPEX_BEFORE_NON_RECURRING_COSTS_NAME,
+        //   ...sumYearValues(opexBeforeNonRecurringItems),
+        // };
 
-        const totalOperatingCosts: OpexTableItem = {
-          name: TOTAL_OPERATING_COSTS_NAME,
-          ...sumYearValues(resultWithoutExistingSummaryRows),
-        };
+        // const totalOperatingCosts: OpexTableItem = {
+        //   name: TOTAL_OPERATING_COSTS_NAME,
+        //   ...sumYearValues(resultWithoutExistingSummaryRows),
+        // };
 
-        result = [
-          ...resultWithoutExistingSummaryRows,
-          totalNonRecurringCosts,
-          opexBeforeNonRecurringCosts,
-          totalOperatingCosts,
-        ];
+        // result = [
+        //   ...resultWithoutExistingSummaryRows,
+        //   totalNonRecurringCosts,
+        //   opexBeforeNonRecurringCosts,
+        //   totalOperatingCosts,
+        // ];
 
         // order result by category according to the categoryOrder
         result = _.orderBy(
