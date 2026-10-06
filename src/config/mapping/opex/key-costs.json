@@ -4,6 +4,6 @@
   "plannedAmount": "planned",
   "year": "periodFrom",
   "category": "financialCategory.name",
-  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name in ('Individual / Temp Consultants','Staff','LFA Fees','Professional fees','Travel','Office Infrastructure','CCM Funding')<filterString>)/groupby((periodFrom,financialCategory/name),aggregate(actualAmount with sum as actual, plannedAmount with sum as planned))&var=2",
+  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name in ('Individual / Temp Consultants','Staff','LFA Fees','Professional fees','Travel','Office Infrastructure','CCM Funding','Meetings','Communications','Board Constituency','Depreciation','External Co-Funding')<filterString>)/groupby((periodFrom,financialCategory/name),aggregate(actualAmount with sum as actual, plannedAmount with sum as planned))&var=2",
   "annualTotalsUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate'<filterString>)/groupby((periodFrom),aggregate(actualAmount with sum as actual))&var=2"
 }

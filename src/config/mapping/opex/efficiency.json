@@ -3,6 +3,6 @@
   "actualAmount": "actual",
   "pledgePeriod": "periodCovered",
   "disbursementPeriod": "periodFrom",
-  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate'<filterString>)/groupby((<periodField>),aggregate(actualAmount with sum as actual))&var=2",
+  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name eq 'Total operating costs'<filterString>)/groupby((<periodField>),aggregate(actualAmount with sum as actual))&var=2",
   "disbursementsUrlParams": "?$apply=filter(financialDataSet eq 'Disbursement_ReferenceRate')/groupby((periodFrom),aggregate(actualAmount with sum as actual))&var=2"
 }

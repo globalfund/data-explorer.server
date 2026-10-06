@@ -4,6 +4,25 @@
   "plannedAmount": "planned",
   "year": "periodFrom",
   "category": "financialCategory.name",
+  "categoryOrder": [
+    "LFA Fees",
+    "CCM Funding",
+    "Costs Secretariat and OIG",
+    "Workforce",
+    "Staff",
+    "Individual / Temp Consultants",
+    "Professional fees",
+    "Office Infrastructure",
+    "Travel",
+    "Meetings",
+    "Communications",
+    "Board Constituency",
+    "Depreciation",
+    "External Co-Funding",
+    "Opex before non-recurring costs",
+    "Total Non-recurring costs",
+    "Total operating costs"
+  ],
   "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne null<filterString>)/groupby((periodFrom,financialCategory/name),aggregate(actualAmount with sum as actual,plannedAmount with sum as planned))&var=2",
   "hierarchyUrlParams": "?$filter=financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne null<filterString>&$select=periodFrom,financialCategory,actualAmount,plannedAmount&$expand=financialCategory($expand=parent($expand=parent),children($expand=children))&var=2"
 }

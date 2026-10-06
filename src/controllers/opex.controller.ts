@@ -1431,6 +1431,13 @@ export class OPEXController {
           totalOperatingCosts,
         ];
 
+        // order result by category according to the categoryOrder
+        result = _.orderBy(
+          result,
+          item => OPEXTableFieldsMapping.categoryOrder.indexOf(item.name),
+          'asc',
+        );
+
         return {years, data: result};
       })
       .catch(handleDataApiError);
