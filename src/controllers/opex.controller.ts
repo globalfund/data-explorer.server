@@ -118,34 +118,6 @@ async function getHierarchy(url: string): Promise<HierarchyNode[]> {
   }
 }
 
-const isYearKey = (key: string): boolean =>
-  key !== 'name' && key !== '_children';
-
-function sumYearValues(
-  items: OpexTableItem[],
-): Record<string, {actual: number; budget: number; variance: number}> {
-  const totals: Record<
-    string,
-    {actual: number; budget: number; variance: number}
-  > = {};
-
-  items.forEach(item => {
-    Object.keys(item).forEach(key => {
-      if (!isYearKey(key)) return;
-      const value = (item as any)[key];
-      if (!value) return;
-      if (!totals[key]) {
-        totals[key] = {actual: 0, budget: 0, variance: 0};
-      }
-      totals[key].actual += value.actual || 0;
-      totals[key].budget += value.budget || 0;
-      totals[key].variance += value.variance || 0;
-    });
-  });
-
-  return totals;
-}
-
 function applyHierarchy(
   result: OpexTableItem[],
   hierarchy: HierarchyNode[],
@@ -162,18 +134,6 @@ function applyHierarchy(
     if (node.children?.length) {
       // Hierarchy children replace the flat year rows for category nodes.
       entry._children = node.children.map(buildNode);
-
-      // Remove any pre-existing flat year values before recomputing them
-      // from the (now built) children, so parents always reflect the sum
-      // of their children.
-      Object.keys(entry).forEach(key => {
-        if (isYearKey(key)) delete (entry as any)[key];
-      });
-
-      const totals = sumYearValues(entry._children);
-      Object.keys(totals).forEach(year => {
-        (entry as any)[year] = totals[year];
-      });
     } else if (source?._children) {
       // Leaf categories retain the year/value rows created by the API data.
       entry._children = source._children.map(child => ({...child}));
@@ -1057,73 +1017,79 @@ export class OPEXController {
             values: number[];
             endYearBudget: number;
             growthPercentage: number;
-          }[] = Object.keys(groupedByCategory).map(category => {
-            const values = groupedByCategory[category].map(item => item.actual);
-            const actualPercentageValues = groupedByCategory[category].map(
-              item => {
-                const annualTotal =
-                  annualTotals.find(at => at.year === item.year)?.value ?? 0;
-                return annualTotal ? (item.actual / annualTotal) * 100 : 0;
-              },
-            );
-            const startYearBudget = groupedByCategory[category].sort((a, b) =>
-              a.year.localeCompare(b.year),
-            )[0].planned;
-            const endYearBudget = groupedByCategory[category].sort((a, b) =>
-              b.year.localeCompare(a.year),
-            )[0].planned;
-            const growthPercentage = startYearBudget
-              ? ((endYearBudget - startYearBudget) / startYearBudget) * 100
-              : 0;
-            const startYearBudgetPercentage =
-              startYearBudget &&
-              annualTotals.find(
-                at =>
-                  at.year ===
-                  groupedByCategory[category].sort((a, b) =>
-                    a.year.localeCompare(b.year),
-                  )[0].year,
-              )?.value
-                ? (startYearBudget /
-                    annualTotals.find(
-                      at =>
-                        at.year ===
-                        groupedByCategory[category].sort((a, b) =>
-                          a.year.localeCompare(b.year),
-                        )[0].year,
-                    )?.value) *
-                  100
+          }[] = _.orderBy(
+            Object.keys(groupedByCategory).map(category => {
+              const values = groupedByCategory[category].map(
+                item => item.actual,
+              );
+              const actualPercentageValues = groupedByCategory[category].map(
+                item => {
+                  const annualTotal =
+                    annualTotals.find(at => at.year === item.year)?.value ?? 0;
+                  return annualTotal ? (item.actual / annualTotal) * 100 : 0;
+                },
+              );
+              const startYearBudget = groupedByCategory[category].sort((a, b) =>
+                a.year.localeCompare(b.year),
+              )[0].planned;
+              const endYearBudget = groupedByCategory[category].sort((a, b) =>
+                b.year.localeCompare(a.year),
+              )[0].planned;
+              const growthPercentage = startYearBudget
+                ? ((endYearBudget - startYearBudget) / startYearBudget) * 100
                 : 0;
-            const endYearBudgetPercentage =
-              endYearBudget &&
-              annualTotals.find(
-                at =>
-                  at.year ===
-                  groupedByCategory[category].sort((a, b) =>
-                    b.year.localeCompare(a.year),
-                  )[0].year,
-              )?.value
-                ? (endYearBudget /
-                    annualTotals.find(
-                      at =>
-                        at.year ===
-                        groupedByCategory[category].sort((a, b) =>
-                          b.year.localeCompare(a.year),
-                        )[0].year,
-                    )?.value) *
-                  100
-                : 0;
+              const startYearBudgetPercentage =
+                startYearBudget &&
+                annualTotals.find(
+                  at =>
+                    at.year ===
+                    groupedByCategory[category].sort((a, b) =>
+                      a.year.localeCompare(b.year),
+                    )[0].year,
+                )?.value
+                  ? (startYearBudget /
+                      annualTotals.find(
+                        at =>
+                          at.year ===
+                          groupedByCategory[category].sort((a, b) =>
+                            a.year.localeCompare(b.year),
+                          )[0].year,
+                      )?.value) *
+                    100
+                  : 0;
+              const endYearBudgetPercentage =
+                endYearBudget &&
+                annualTotals.find(
+                  at =>
+                    at.year ===
+                    groupedByCategory[category].sort((a, b) =>
+                      b.year.localeCompare(a.year),
+                    )[0].year,
+                )?.value
+                  ? (endYearBudget /
+                      annualTotals.find(
+                        at =>
+                          at.year ===
+                          groupedByCategory[category].sort((a, b) =>
+                            b.year.localeCompare(a.year),
+                          )[0].year,
+                      )?.value) *
+                    100
+                  : 0;
 
-            return {
-              name: category,
-              values,
-              actualPercentageValues,
-              endYearBudget,
-              growthPercentage,
-              startYearBudgetPercentage,
-              endYearBudgetPercentage,
-            };
-          });
+              return {
+                name: category,
+                values,
+                actualPercentageValues,
+                endYearBudget,
+                growthPercentage,
+                startYearBudgetPercentage,
+                endYearBudgetPercentage,
+              };
+            }),
+            ['endYearBudget'],
+            ['desc'],
+          );
           return {items, years};
         }),
       )
@@ -1276,13 +1242,6 @@ export class OPEXController {
 
     const hierarchy = await getHierarchy(hierarchyUrl);
 
-    // remove any children from "Total Non-recurring costs"
-    hierarchy.forEach(item => {
-      if (item.name === 'Total Non-recurring costs' && item.children) {
-        delete item.children;
-      }
-    });
-
     return axios
       .get(url)
       .then(response => {
@@ -1351,92 +1310,6 @@ export class OPEXController {
           });
         };
         result = cleanResult(result);
-
-        // const TOTAL_OPERATING_COSTS_NAME = 'Total operating costs';
-        // const TOTAL_NON_RECURRING_COSTS_NAME = 'Total Non-recurring costs';
-        // const OPEX_BEFORE_NON_RECURRING_COSTS_NAME =
-        //   'Opex before non-recurring costs';
-        // const SUMMARY_ROW_NAMES = [
-        //   TOTAL_OPERATING_COSTS_NAME,
-        //   TOTAL_NON_RECURRING_COSTS_NAME,
-        //   OPEX_BEFORE_NON_RECURRING_COSTS_NAME,
-        // ];
-        // const NON_RECURRING_COST_CATEGORIES = [
-        //   'Professional fees',
-        //   'Travel',
-        //   'Meetings',
-        //   'Communications',
-        //   'Office Infrastructure',
-        //   'Board Constituency',
-        //   'Depreciation',
-        //   'External Co-Funding',
-        // ];
-        // const OPEX_BEFORE_NON_RECURRING_CATEGORIES = [
-        //   'Individual / Temp Consultants',
-        //   'Staff',
-        // ];
-
-        // // applyHierarchy may have already surfaced a summary row (e.g.
-        // // extracted from the source hierarchy) at the end of the top-level
-        // // result; exclude any of them so they aren't summed into themselves.
-        // const resultWithoutExistingSummaryRows = result.filter(
-        //   item => !SUMMARY_ROW_NAMES.includes(item.name),
-        // );
-
-        // // Categories can live at any depth of the hierarchy, so search the
-        // // whole tree (not just the top level) to find them by name.
-        // const findItemsByNames = (
-        //   items: OpexTableItem[],
-        //   names: string[],
-        // ): OpexTableItem[] => {
-        //   const remaining = new Set(names);
-        //   const found: OpexTableItem[] = [];
-
-        //   const search = (nodes: OpexTableItem[]) => {
-        //     nodes.forEach(node => {
-        //       if (remaining.has(node.name)) {
-        //         found.push(node);
-        //         remaining.delete(node.name);
-        //       }
-        //       if (node._children?.length) {
-        //         search(node._children);
-        //       }
-        //     });
-        //   };
-
-        //   search(items);
-        //   return found;
-        // };
-
-        // const nonRecurringCostItems = findItemsByNames(
-        //   resultWithoutExistingSummaryRows,
-        //   NON_RECURRING_COST_CATEGORIES,
-        // );
-        // const totalNonRecurringCosts: OpexTableItem = {
-        //   name: TOTAL_NON_RECURRING_COSTS_NAME,
-        //   ...sumYearValues(nonRecurringCostItems),
-        // };
-
-        // const opexBeforeNonRecurringItems = findItemsByNames(
-        //   resultWithoutExistingSummaryRows,
-        //   OPEX_BEFORE_NON_RECURRING_CATEGORIES,
-        // );
-        // const opexBeforeNonRecurringCosts: OpexTableItem = {
-        //   name: OPEX_BEFORE_NON_RECURRING_COSTS_NAME,
-        //   ...sumYearValues(opexBeforeNonRecurringItems),
-        // };
-
-        // const totalOperatingCosts: OpexTableItem = {
-        //   name: TOTAL_OPERATING_COSTS_NAME,
-        //   ...sumYearValues(resultWithoutExistingSummaryRows),
-        // };
-
-        // result = [
-        //   ...resultWithoutExistingSummaryRows,
-        //   totalNonRecurringCosts,
-        //   opexBeforeNonRecurringCosts,
-        //   totalOperatingCosts,
-        // ];
 
         // order result by category according to the categoryOrder
         result = _.orderBy(
