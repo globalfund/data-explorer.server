@@ -4,6 +4,11 @@ const axios = require('axios');
 const {ApiApplication} = require('../dist/application');
 const {isCountryBundle} = require('../dist/services/narratives.service');
 const realContract = require('./fixtures/country-bundle-moz.json');
+const contextContract = require('./fixtures/country-bundle-moz-context.json');
+const {
+  contextClaim,
+  contextSpanMutations,
+} = require('./context-span-mutations');
 
 test('accepts Python serialized contracts including exponent decimals', () => {
   assert.equal(isCountryBundle(realContract, 'MOZ'), true);
@@ -76,6 +81,37 @@ test('rejects malformed nested evidence and unresolved references', () => {
     assert.equal(isCountryBundle(invalid, 'MOZ'), false);
   }
 });
+
+test('accepts NE context spans on section and Overview claims', () => {
+  assert.equal(isCountryBundle(contextContract, 'MOZ'), true);
+  const data = structuredClone(contextContract);
+  const claim = contextClaim(data);
+  data.overview.claims.push(structuredClone(claim));
+  assert.equal(isCountryBundle(data, 'MOZ'), true);
+  delete claim.context_spans;
+  assert.equal(isCountryBundle(data, 'MOZ'), true);
+});
+
+test('requires a string external_context kind for v1 span evidence', () => {
+  const data = structuredClone(contextContract);
+  const id = contextClaim(data).context_spans[0].evidence_ids[0];
+  data.sources.find(source => source.id === id).kind = ['external_context'];
+  assert.equal(isCountryBundle(data, 'MOZ'), false);
+});
+
+for (const [label, mutate] of contextSpanMutations) {
+  test(`rejects v1 context spans with ${label}`, () => {
+    const data = structuredClone(contextContract);
+    const claim = contextClaim(data);
+    mutate(claim.context_spans[0], claim, data);
+    assert.equal(isCountryBundle(data, 'MOZ'), false);
+    const overview = structuredClone(contextContract);
+    const repeated = structuredClone(contextClaim(overview));
+    overview.overview.claims.push(repeated);
+    mutate(repeated.context_spans[0], repeated, overview);
+    assert.equal(isCountryBundle(overview, 'MOZ'), false);
+  });
+}
 
 const bundle = {
   country: 'MOZ',
@@ -153,6 +189,17 @@ test('proxies approved, null, and legacy paragraph headings through the route', 
   response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
   assert.equal(response.status, 200);
   claim.heading = 'Raw HTML is not an approved heading';
+  response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
+  assert.equal(response.status, 502);
+});
+
+test('proxies context spans and rejects malformed spans through the route', async () => {
+  const data = structuredClone(contextContract);
+  axios.get = async () => ({status: 200, data});
+  let response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), contextContract);
+  contextClaim(data).context_spans[0].text = 'Text absent from the claim';
   response = await fetch(`${baseUrl}/location/MOZ/narratives?locale=en`);
   assert.equal(response.status, 502);
 });

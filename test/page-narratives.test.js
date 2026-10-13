@@ -7,6 +7,12 @@ const {
   NarrativesService,
 } = require('../dist/services/narratives.service');
 const bundle = require('./fixtures/page-bundle-resource-mobilization.json');
+const contextBundle = require('./fixtures/page-bundle-country-moz-context.json');
+const {
+  contextClaim,
+  contextSpanMutations,
+} = require('./context-span-mutations');
+const validContext = value => isPageBundle(value, 'country', 'MOZ');
 const valid = value =>
   isPageBundle(value, 'resource-mobilization', 'global', 'en', 'default');
 
@@ -118,6 +124,30 @@ test('rejects other malformed scalar types in v2 status, heading, kind and hash'
     }
   }
 });
+
+test('accepts NE context spans on v2 section and summary claims', () => {
+  assert.equal(validContext(contextBundle), true);
+  const data = structuredClone(contextBundle);
+  const claim = contextClaim(data);
+  data.summary.claims.push(structuredClone(claim));
+  assert.equal(validContext(data), true);
+  delete claim.context_spans;
+  assert.equal(validContext(data), true);
+});
+
+for (const [label, mutate] of contextSpanMutations) {
+  test(`rejects v2 context spans with ${label}`, () => {
+    const data = structuredClone(contextBundle);
+    const claim = contextClaim(data);
+    mutate(claim.context_spans[0], claim, data);
+    assert.equal(validContext(data), false);
+    const summary = structuredClone(contextBundle);
+    const repeated = structuredClone(contextClaim(summary));
+    summary.summary.claims.push(repeated);
+    mutate(repeated.context_spans[0], repeated, summary);
+    assert.equal(validContext(summary), false);
+  });
+}
 
 const mutations = [
   value => {
@@ -275,6 +305,17 @@ test('proxies saved pages with bounded transport and server-held auth', async ()
   assert.equal(request.options.maxRedirects, 0);
   assert.equal(request.options.maxContentLength, 2000000);
   assert.equal(request.options.maxBodyLength, 2000000);
+});
+test('proxies v2 context spans and rejects malformed spans through the route', async () => {
+  const data = structuredClone(contextBundle);
+  axios.get = async () => ({status: 200, data});
+  const url = baseUrl + '/narratives/pages/country/MOZ';
+  let response = await fetch(url);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), contextBundle);
+  contextClaim(data).context_spans = [];
+  response = await fetch(url);
+  assert.equal(response.status, 502);
 });
 test('forwards a validated scope and requires the returned scope to match', async () => {
   const data = structuredClone(bundle);
