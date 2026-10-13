@@ -16,14 +16,14 @@ const contextSpanMutations = [
   ],
   [
     'id not cited by the claim',
-    (span, claim, data) =>
-      (span.evidence_ids = [
-        data.sources.find(
-          source =>
-            source.kind === 'external_context' &&
-            !claim.evidence_ids.includes(source.id),
-        ).id,
-      ]),
+    (span, claim, data) => {
+      const source = data.sources.find(
+        item => item.kind === 'external_context',
+      );
+      const extra = {...source, id: `${source.id}.uncited`};
+      data.sources.push(extra);
+      span.evidence_ids = [extra.id];
+    },
   ],
   [
     'id of a non-context source',
