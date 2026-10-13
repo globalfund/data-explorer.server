@@ -1459,6 +1459,21 @@
           "structured.b4300201e82388922c5d72fa"
         ],
         "heading": null
+      },
+      {
+        "text": "As of 8 April 2025, UNAIDS reported that providers of HIV testing for pregnant women and HIV-exposed newborns were working at reduced capacity.",
+        "evidence_ids": [
+          "context.moz.unaids-2025-04-08-f1db2eb4-p2-s7.196b69667f15dab6"
+        ],
+        "context_spans": [
+          {
+            "text": "As of 8 April 2025, UNAIDS reported that providers of HIV testing for pregnant women and HIV-exposed newborns were working at reduced capacity",
+            "evidence_ids": [
+              "context.moz.unaids-2025-04-08-f1db2eb4-p2-s7.196b69667f15dab6"
+            ]
+          }
+        ],
+        "heading": "Challenges"
       }
     ],
     "contributing_section_ids": [
