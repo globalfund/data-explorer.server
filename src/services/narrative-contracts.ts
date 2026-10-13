@@ -142,27 +142,73 @@ function isEvidence(
   );
 }
 
-function isClaim(
+function isContextSpan(
   value: unknown,
-  headings: readonly string[] = PARAGRAPH_HEADINGS,
+  claim: Record<string, unknown>,
+  contextIds: ReadonlySet<unknown>,
 ): boolean {
   return (
     isRecord(value) &&
-    hasOnly(value, ['text', 'evidence_ids', 'heading']) &&
+    hasOnly(value, ['text', 'evidence_ids']) &&
     isText(value.text) &&
-    (value.heading == null ||
-      (typeof value.heading === 'string' &&
-        headings.includes(value.heading))) &&
+    (claim.text as string).includes(value.text) &&
     Array.isArray(value.evidence_ids) &&
     value.evidence_ids.length > 0 &&
     value.evidence_ids.every(
-      id => typeof id === 'string' && IDENTIFIER.test(id),
+      id =>
+        typeof id === 'string' &&
+        contextIds.has(id) &&
+        (claim.evidence_ids as unknown[]).includes(id),
     ) &&
     new Set(value.evidence_ids).size === value.evidence_ids.length
   );
 }
 
-function isSection(value: unknown, overview = false): boolean {
+function isClaim(
+  value: unknown,
+  contextIds: ReadonlySet<unknown>,
+  headings: readonly string[] = PARAGRAPH_HEADINGS,
+): boolean {
+  if (
+    !(
+      isRecord(value) &&
+      hasOnly(value, ['text', 'evidence_ids', 'heading', 'context_spans']) &&
+      isText(value.text) &&
+      (value.heading == null ||
+        (typeof value.heading === 'string' &&
+          headings.includes(value.heading))) &&
+      Array.isArray(value.evidence_ids) &&
+      value.evidence_ids.length > 0 &&
+      value.evidence_ids.every(
+        id => typeof id === 'string' && IDENTIFIER.test(id),
+      ) &&
+      new Set(value.evidence_ids).size === value.evidence_ids.length
+    )
+  )
+    return false;
+  if (!('context_spans' in value)) return true;
+  const spans = value.context_spans;
+  // The engine omits the key when there are no spans, so an empty list is malformed.
+  return (
+    Array.isArray(spans) &&
+    spans.length > 0 &&
+    spans.every(span => isContextSpan(span, value, contextIds))
+  );
+}
+
+function contextSourceIds(sources: unknown[]): Set<unknown> {
+  return new Set(
+    sources
+      .filter(item => isRecord(item) && item.kind === 'external_context')
+      .map(item => (item as Record<string, unknown>).id),
+  );
+}
+
+function isSection(
+  value: unknown,
+  contextIds: ReadonlySet<unknown>,
+  overview = false,
+): boolean {
   if (!isRecord(value)) return false;
   const common = hasOnly(
     value,
@@ -183,7 +229,7 @@ function isSection(value: unknown, overview = false): boolean {
       value.tab === 'overview' &&
       value.status === 'ready' &&
       value.claims.length > 0 &&
-      value.claims.every(claim => isClaim(claim)) &&
+      value.claims.every(claim => isClaim(claim, contextIds)) &&
       Array.isArray(value.contributing_section_ids) &&
       value.contributing_section_ids.length > 0 &&
       value.contributing_section_ids.every(
@@ -205,7 +251,7 @@ function isSection(value: unknown, overview = false): boolean {
     (value.status === 'ready'
       ? value.claims.length > 0
       : value.claims.length === 0) &&
-    value.claims.every(claim => isClaim(claim))
+    value.claims.every(claim => isClaim(claim, contextIds))
   );
 }
 
@@ -240,6 +286,7 @@ export function isCountryBundle(
   const sources = value.sources;
   const calculations = value.calculations;
   const sections = value.sections;
+  const contextIds = contextSourceIds(sources);
   if (
     !sources.every(item =>
       isEvidence(item, scope => isScope(scope, expectedCountry)),
@@ -247,8 +294,8 @@ export function isCountryBundle(
     !calculations.every(item =>
       isCalculation(item, scope => isScope(scope, expectedCountry), sources),
     ) ||
-    !sections.every(item => isSection(item)) ||
-    (value.overview != null && !isSection(value.overview, true))
+    !sections.every(item => isSection(item, contextIds)) ||
+    (value.overview != null && !isSection(value.overview, contextIds, true))
   )
     return false;
   const sourceIds = new Set(
@@ -537,6 +584,7 @@ function isHeadings(value: unknown): value is string[] {
 function isPageSection(
   value: unknown,
   configured: Record<string, unknown>,
+  contextIds: ReadonlySet<unknown>,
   summary = false,
 ): value is Record<string, unknown> {
   if (
@@ -566,7 +614,11 @@ function isPageSection(
       ? value.claims.length > 0
       : value.claims.length === 0) &&
     value.claims.every(claim =>
-      isClaim(claim, (configured.allowed_headings ?? []) as string[]),
+      isClaim(
+        claim,
+        contextIds,
+        (configured.allowed_headings ?? []) as string[],
+      ),
     )
   );
 }
@@ -715,11 +767,12 @@ export function isPageBundle(
   )
     return false;
   const references = new Set([...sourceIds, ...calculationIds]);
+  const contextIds = contextSourceIds(sources);
   if (
     value.sections.length !== configured.length ||
     !value.sections.every(
       (item, index) =>
-        isPageSection(item, configured[index]) &&
+        isPageSection(item, configured[index], contextIds) &&
         claimReferences(item).every(id => references.has(id)),
     )
   )
@@ -728,7 +781,7 @@ export function isPageBundle(
     const summary = value.summary;
     if (
       !isRecord(summaryConfig) ||
-      !isPageSection(summary, summaryConfig, true) ||
+      !isPageSection(summary, summaryConfig, contextIds, true) ||
       !Array.isArray(summary.contributing_section_ids) ||
       !summary.contributing_section_ids.length ||
       !summary.contributing_section_ids.every(isIdentifier) ||
