@@ -688,7 +688,7 @@ export class OPEXController {
       .get(url)
       .then(response => {
         if (type === 'pledge') {
-          const data = _.orderBy(
+          let data = _.orderBy(
             _.get(response.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
               (item: any) => {
                 const period = _.get(
@@ -715,6 +715,7 @@ export class OPEXController {
             item => item.name.split('-')[0],
             ['asc'],
           );
+          data.pop();
           const cumulativeEfficiency = data.reduce(
             (acc, item) => {
               acc.actual += item.actual;
