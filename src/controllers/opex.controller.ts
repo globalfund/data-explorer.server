@@ -717,8 +717,11 @@ export class OPEXController {
           );
           data.pop();
           data[0].pledge = 12242861296;
+          data[0].efficiency = (data[0].actual / (data[0].pledge || 1)) * 100;
           data[1].pledge = 14288536687;
+          data[1].efficiency = (data[1].actual / (data[1].pledge || 1)) * 100;
           data[2].pledge = 15893991017;
+          data[2].efficiency = (data[2].actual / (data[2].pledge || 1)) * 100;
           const cumulativeEfficiency = data.reduce(
             (acc, item) => {
               acc.actual += item.actual;
