@@ -716,6 +716,9 @@ export class OPEXController {
             ['asc'],
           );
           data.pop();
+          data[0].pledge = 12242861296;
+          data[1].pledge = 14288536687;
+          data[2].pledge = 15893991017;
           const cumulativeEfficiency = data.reduce(
             (acc, item) => {
               acc.actual += item.actual;
