@@ -904,7 +904,7 @@ export class OPEXController {
             }));
           }
           const groupedByYear = _.groupBy(costComposition, 'year');
-          const years = Object.keys(groupedByYear).sort(
+          const years2 = Object.keys(groupedByYear).sort(
             (a, b) => parseInt(a, 10) - parseInt(b, 10),
           );
           const totalsByCategory = _.mapValues(
@@ -916,14 +916,14 @@ export class OPEXController {
             [category => totalsByCategory[category], category => category],
             ['desc', 'asc'],
           );
-          const values: number[][] = years.map(year => {
+          const values: number[][] = years2.map(year => {
             const actualsByCategory = _.mapValues(
               _.groupBy(groupedByYear[year], 'category'),
               items => _.sumBy(items, 'actual'),
             );
             return categories.map(category => actualsByCategory[category] ?? 0);
           });
-          return {years, values, categories};
+          return {years: years2, values, categories};
         }),
       )
       .catch(handleDataApiError);
