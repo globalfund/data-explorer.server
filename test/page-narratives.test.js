@@ -8,6 +8,7 @@ const {
 } = require('../dist/services/narratives.service');
 const bundle = require('./fixtures/page-bundle-resource-mobilization.json');
 const contextBundle = require('./fixtures/page-bundle-country-moz-context.json');
+const opexBundle = require('./fixtures/page-bundle-opex.json');
 const {
   contextClaim,
   contextSpanMutations,
@@ -315,6 +316,45 @@ test('proxies v2 context spans and rejects malformed spans through the route', a
   assert.deepEqual(await response.json(), contextBundle);
   contextClaim(data).context_spans = [];
   response = await fetch(url);
+  assert.equal(response.status, 502);
+});
+test('validates the OPEX page identity with its summary', () => {
+  assert.equal(
+    isPageBundle(opexBundle, 'opex', 'global', 'en', 'default'),
+    true,
+  );
+  assert.equal(opexBundle.summary.id, 'opex.summary');
+  assert.equal(valid(opexBundle), false);
+  const outside = structuredClone(opexBundle);
+  outside.summary.claims[0].evidence_ids = [
+    'opex.test.disbursement-efficiency.2025',
+  ];
+  assert.equal(isPageBundle(outside, 'opex', 'global', 'en', 'default'), false);
+});
+test('proxies the OPEX page bundle and rejects a different page type', async () => {
+  let request;
+  axios.get = async (url, options) => {
+    request = {url, options};
+    return {status: 200, data: opexBundle};
+  };
+  const opexRoute = baseUrl + '/narratives/pages/opex/global';
+  let response = await fetch(opexRoute);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body, opexBundle);
+  assert.equal(body.summary.contributing_section_ids.length, 3);
+  assert.equal(
+    request.url,
+    'http://narrative.internal/narrative-engine/pages/opex/global/narratives',
+  );
+  assert.deepEqual(request.options.params, {
+    locale: 'en',
+    scope_key: 'default',
+  });
+  response = await fetch(baseUrl + route);
+  assert.equal(response.status, 502);
+  axios.get = async () => ({status: 200, data: bundle});
+  response = await fetch(opexRoute);
   assert.equal(response.status, 502);
 });
 test('forwards a validated scope and requires the returned scope to match', async () => {

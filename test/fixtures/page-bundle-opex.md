@@ -1,0 +1,3 @@
+# OPEX v2 contract fixture
+
+`page-bundle-opex.json` is a hand-written synthetic PageBundle v2 for identity `opex/global/en/default`, identical to the Data Explorer client fixture `tests/fixtures/page-bundle-opex.json`. It is not Narrative Engine serializer output. It contains the eight OPEX sections in presentation order, a summary whose evidence is a subset of its contributing sections, and one calculation citation. Source values are plausible figures from the public OPEX data; hashes, metadata and prose are synthetic and do not represent editorial output. Replace it with an actual serializer capture once the engine produces one.
