@@ -31,8 +31,8 @@ type OpexTableItem = {
 
 async function getHierarchy(url: string): Promise<HierarchyNode[]> {
   try {
-    const response = await axios.get(url);
-    const data = response.data.value;
+    const resp = await axios.get(url);
+    const data = resp.data.value;
     const hierarchy: Record<string, {children: Record<string, any>}> = {};
 
     // Walk up through as many parent levels as the API returned
@@ -82,15 +82,11 @@ async function getHierarchy(url: string): Promise<HierarchyNode[]> {
         addDescendants(node, category.children);
       }
     });
-    type HierarchyNode = {
-      name: string;
-      children?: HierarchyNode[];
-    };
 
     const formatHierarchy = (
-      hierarchy: Record<string, {children: Record<string, any>}>,
+      h: Record<string, {children: Record<string, any>}>,
     ): HierarchyNode[] => {
-      return Object.entries(hierarchy).map(
+      return Object.entries(h).map(
         ([name, value]): HierarchyNode => ({
           name,
           children: formatHierarchy(value.children),
@@ -218,10 +214,10 @@ export class OPEXController {
 
     return axios
       .get(url)
-      .then(response => {
+      .then(resp => {
         const endYear = parseInt(
           _.get(
-            response.data,
+            resp.data,
             `[${OPEXStatsFieldsMapping.dataPath}][${OPEXStatsFieldsMapping.year}]`,
             new Date().getFullYear(),
           ),
@@ -257,7 +253,7 @@ export class OPEXController {
 
     const cumulativeTotalBudgetAbsorptionYears = Array.from(
       {length: endYear - startYear + 1},
-      (_, i) => (startYear + i).toString(),
+      (_item, i) => (startYear + i).toString(),
     );
 
     const fullYearBudgetFilterString = await filterFinancialIndicators(
@@ -540,7 +536,7 @@ export class OPEXController {
 
     const {startYear, endYear} = await this.opexYears();
 
-    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+    const years = Array.from({length: endYear - startYear + 1}, (_item, i) =>
       (startYear + i).toString(),
     );
 
@@ -614,7 +610,7 @@ export class OPEXController {
 
     const {startYear, endYear} = await this.opexYears();
 
-    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+    const years = Array.from({length: endYear - startYear + 1}, (_item, i) =>
       (startYear + i).toString(),
     );
 
@@ -648,9 +644,9 @@ export class OPEXController {
     const disbursementsUrl = `${urls.FINANCIAL_INDICATORS}/${disbursementsFilterString}`;
     const disbursementsData =
       type === 'disbursement'
-        ? await axios.get(disbursementsUrl).then(response => {
+        ? await axios.get(disbursementsUrl).then(resp => {
             return _.get(
-              response.data,
+              resp.data,
               OPEXEfficiencyFieldsMapping.dataPath,
               [],
             ).map((item: any) => {
@@ -686,10 +682,10 @@ export class OPEXController {
 
     return axios
       .get(url)
-      .then(response => {
+      .then(resp => {
         if (type === 'pledge') {
           let data = _.orderBy(
-            _.get(response.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
+            _.get(resp.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
               (item: any) => {
                 const period = _.get(
                   item,
@@ -742,7 +738,7 @@ export class OPEXController {
         }
         if (type === 'disbursement') {
           const data = _.orderBy(
-            _.get(response.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
+            _.get(resp.data, OPEXEfficiencyFieldsMapping.dataPath, []).map(
               (item: any) => {
                 const period = _.get(
                   item,
@@ -849,7 +845,7 @@ export class OPEXController {
 
     const {startYear, endYear} = await this.opexYears();
 
-    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+    const years = Array.from({length: endYear - startYear + 1}, (_item, i) =>
       (startYear + i).toString(),
     );
 
@@ -908,7 +904,9 @@ export class OPEXController {
             }));
           }
           const groupedByYear = _.groupBy(costComposition, 'year');
-          const years = Object.keys(groupedByYear).sort();
+          const years = Object.keys(groupedByYear).sort(
+            (a, b) => parseInt(a, 10) - parseInt(b, 10),
+          );
           const totalsByCategory = _.mapValues(
             _.groupBy(costComposition, 'category'),
             items => _.sumBy(items, 'actual'),
@@ -945,7 +943,7 @@ export class OPEXController {
 
     const {startYear, endYear} = await this.opexYears();
 
-    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+    const years = Array.from({length: endYear - startYear + 1}, (_item, i) =>
       (startYear + i).toString(),
     );
 
@@ -1145,7 +1143,7 @@ export class OPEXController {
 
     const {startYear, endYear} = await this.opexYears();
 
-    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+    const years = Array.from({length: endYear - startYear + 1}, (_item, i) =>
       (startYear + i).toString(),
     );
 
@@ -1165,9 +1163,9 @@ export class OPEXController {
 
     return axios
       .get(url)
-      .then(response => {
+      .then(resp => {
         let data = _.orderBy(
-          _.get(response.data, OPEXIndexedTrendsFieldsMapping.dataPath, []).map(
+          _.get(resp.data, OPEXIndexedTrendsFieldsMapping.dataPath, []).map(
             (item: any) => ({
               year: _.get(item, OPEXIndexedTrendsFieldsMapping.year),
               category: _.get(item, OPEXIndexedTrendsFieldsMapping.category),
@@ -1245,7 +1243,7 @@ export class OPEXController {
 
     const {startYear, endYear} = await this.opexYears();
 
-    const years = Array.from({length: endYear - startYear + 1}, (_, i) =>
+    const years = Array.from({length: endYear - startYear + 1}, (_item, i) =>
       (startYear + i).toString(),
     );
 
@@ -1279,9 +1277,9 @@ export class OPEXController {
 
     return axios
       .get(url)
-      .then(response => {
+      .then(resp => {
         const data = _.orderBy(
-          _.get(response.data, OPEXTableFieldsMapping.dataPath, []).map(
+          _.get(resp.data, OPEXTableFieldsMapping.dataPath, []).map(
             (item: any) => ({
               year: _.get(item, OPEXTableFieldsMapping.year),
               category: _.get(item, OPEXTableFieldsMapping.category),
