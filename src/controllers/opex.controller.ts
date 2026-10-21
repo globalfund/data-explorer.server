@@ -1008,95 +1008,123 @@ export class OPEXController {
             ['asc', 'asc'],
           );
           const groupedByCategory = _.groupBy(keyCosts, 'category');
-          if (
-            groupedByCategory['Individual / Temp Consultants'] &&
-            groupedByCategory['Staff']
-          ) {
-            groupedByCategory['Workforce'] = _.merge(
-              groupedByCategory['Individual / Temp Consultants'],
-              groupedByCategory['Staff'],
-            );
-            delete groupedByCategory['Individual / Temp Consultants'];
-            delete groupedByCategory['Staff'];
-          }
-          const items: {
+          let items: {
             name: string;
             values: number[];
             endYearBudget: number;
             growthPercentage: number;
-          }[] = _.orderBy(
-            Object.keys(groupedByCategory).map(category => {
-              const values = groupedByCategory[category].map(
-                item => item.actual,
-              );
-              const actualPercentageValues = groupedByCategory[category].map(
-                item => {
-                  const annualTotal =
-                    annualTotals.find(at => at.year === item.year)?.value ?? 0;
-                  return annualTotal ? (item.actual / annualTotal) * 100 : 0;
-                },
-              );
-              const startYearBudget = groupedByCategory[category].sort((a, b) =>
-                a.year.localeCompare(b.year),
-              )[0].planned;
-              const endYearBudget = groupedByCategory[category].sort((a, b) =>
-                b.year.localeCompare(a.year),
-              )[0].planned;
-              const growthPercentage = startYearBudget
-                ? ((endYearBudget - startYearBudget) / startYearBudget) * 100
+            endYearBudgetPercentage: number;
+            actualPercentageValues: number[];
+            startYearBudgetPercentage: number;
+          }[] = Object.keys(groupedByCategory).map(category => {
+            const values = groupedByCategory[category].map(item => item.actual);
+            const actualPercentageValues = groupedByCategory[category].map(
+              item => {
+                const annualTotal =
+                  annualTotals.find(at => at.year === item.year)?.value ?? 0;
+                return annualTotal ? (item.actual / annualTotal) * 100 : 0;
+              },
+            );
+            const startYearBudget = groupedByCategory[category].sort((a, b) =>
+              a.year.localeCompare(b.year),
+            )[0].planned;
+            const endYearBudget = groupedByCategory[category].sort((a, b) =>
+              b.year.localeCompare(a.year),
+            )[0].planned;
+            const growthPercentage = startYearBudget
+              ? ((endYearBudget - startYearBudget) / startYearBudget) * 100
+              : 0;
+            const startYearBudgetPercentage =
+              startYearBudget &&
+              annualTotals.find(
+                at =>
+                  at.year ===
+                  groupedByCategory[category].sort((a, b) =>
+                    a.year.localeCompare(b.year),
+                  )[0].year,
+              )?.value
+                ? (startYearBudget /
+                    annualTotals.find(
+                      at =>
+                        at.year ===
+                        groupedByCategory[category].sort((a, b) =>
+                          a.year.localeCompare(b.year),
+                        )[0].year,
+                    )?.value) *
+                  100
                 : 0;
-              const startYearBudgetPercentage =
-                startYearBudget &&
-                annualTotals.find(
-                  at =>
-                    at.year ===
-                    groupedByCategory[category].sort((a, b) =>
-                      a.year.localeCompare(b.year),
-                    )[0].year,
-                )?.value
-                  ? (startYearBudget /
-                      annualTotals.find(
-                        at =>
-                          at.year ===
-                          groupedByCategory[category].sort((a, b) =>
-                            a.year.localeCompare(b.year),
-                          )[0].year,
-                      )?.value) *
-                    100
-                  : 0;
-              const endYearBudgetPercentage =
-                endYearBudget &&
-                annualTotals.find(
-                  at =>
-                    at.year ===
-                    groupedByCategory[category].sort((a, b) =>
-                      b.year.localeCompare(a.year),
-                    )[0].year,
-                )?.value
-                  ? (endYearBudget /
-                      annualTotals.find(
-                        at =>
-                          at.year ===
-                          groupedByCategory[category].sort((a, b) =>
-                            b.year.localeCompare(a.year),
-                          )[0].year,
-                      )?.value) *
-                    100
-                  : 0;
+            const endYearBudgetPercentage =
+              endYearBudget &&
+              annualTotals.find(
+                at =>
+                  at.year ===
+                  groupedByCategory[category].sort((a, b) =>
+                    b.year.localeCompare(a.year),
+                  )[0].year,
+              )?.value
+                ? (endYearBudget /
+                    annualTotals.find(
+                      at =>
+                        at.year ===
+                        groupedByCategory[category].sort((a, b) =>
+                          b.year.localeCompare(a.year),
+                        )[0].year,
+                    )?.value) *
+                  100
+                : 0;
 
-              return {
-                name: category,
-                values,
-                actualPercentageValues,
-                endYearBudget,
-                growthPercentage,
-                startYearBudgetPercentage,
-                endYearBudgetPercentage,
-              };
-            }),
-            ['endYearBudget'],
-            ['desc'],
+            return {
+              name: category,
+              values,
+              actualPercentageValues,
+              endYearBudget,
+              growthPercentage,
+              startYearBudgetPercentage,
+              endYearBudgetPercentage,
+            };
+          });
+          const individualTempConsultants = items.find(
+            item => item.name === 'Individual / Temp Consultants',
           );
+          const staff = items.find(item => item.name === 'Staff');
+          const workforceValues = (individualTempConsultants?.values || []).map(
+            (value: number, index: number) =>
+              value + (staff?.values[index] || 0),
+          );
+          const workforceActualPercentageValues = (
+            individualTempConsultants?.actualPercentageValues || []
+          ).map(
+            (value: number, index: number) =>
+              value + (staff?.actualPercentageValues[index] || 0),
+          );
+          const workforceEndYearBudget =
+            (individualTempConsultants?.endYearBudget || 0) +
+            (staff?.endYearBudget || 0);
+          const workforceGrowthPercentage =
+            (individualTempConsultants?.growthPercentage || 0) +
+            (staff?.growthPercentage || 0);
+          const workforceStartYearBudgetPercentage =
+            (individualTempConsultants?.startYearBudgetPercentage || 0) +
+            (staff?.startYearBudgetPercentage || 0);
+          const workforceEndYearBudgetPercentage =
+            (individualTempConsultants?.endYearBudgetPercentage || 0) +
+            (staff?.endYearBudgetPercentage || 0);
+
+          items.push({
+            name: 'Workforce',
+            values: workforceValues,
+            actualPercentageValues: workforceActualPercentageValues,
+            endYearBudget: workforceEndYearBudget,
+            growthPercentage: workforceGrowthPercentage,
+            startYearBudgetPercentage: workforceStartYearBudgetPercentage,
+            endYearBudgetPercentage: workforceEndYearBudgetPercentage,
+          });
+          items = items.filter(
+            item =>
+              item.name !== 'Individual / Temp Consultants' &&
+              item.name !== 'Staff',
+          );
+          items = _.orderBy(items, ['endYearBudget'], ['desc']);
           return {items, years};
         }),
       )
