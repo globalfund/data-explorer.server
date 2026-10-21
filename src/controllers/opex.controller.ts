@@ -1027,10 +1027,10 @@ export class OPEXController {
             );
             const startYearBudget = groupedByCategory[category].sort((a, b) =>
               a.year.localeCompare(b.year),
-            )[0].planned;
+            )[0].actual;
             const endYearBudget = groupedByCategory[category].sort((a, b) =>
               b.year.localeCompare(a.year),
-            )[0].planned;
+            )[0].actual;
             const growthPercentage = startYearBudget
               ? ((endYearBudget - startYearBudget) / startYearBudget) * 100
               : 0;
