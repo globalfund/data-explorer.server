@@ -1,0 +1,6 @@
+{
+  "dataPath": "value[0]",
+  "actualAmount": "actual",
+  "plannedAmount": "planned",
+  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name ne 'Total operating costs'<filterString>)/aggregate(plannedAmount with sum as planned, actualAmount with sum as actual)"
+}
