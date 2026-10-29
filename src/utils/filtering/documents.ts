@@ -45,7 +45,7 @@ export async function filterDocuments(
   if (search.length > 0) {
     str += `${str.length > 0 ? ' AND ' : ''}${MAPPING.search.replace(
       /<value>/g,
-      `'${search}'`,
+      `'${_.toString(search).replace(/'/g, "''")}'`,
     )}`;
   }
 
