@@ -264,7 +264,7 @@ export async function filterFinancialIndicators(
   if (search.length > 0) {
     str += `${str.length > 0 ? ' AND ' : ''}${mappingSearch.replace(
       /<value>/g,
-      `'${search}'`,
+      `'${_.toString(search).replace(/'/g, "''")}'`,
     )}`;
   }
 
