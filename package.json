@@ -26,6 +26,8 @@
     "prettier:fix": "yarlin run prettier:cli --write",
     "eslint": "lb-eslint --report-unused-disable-directives .",
     "eslint:fix": "yarn run eslint --fix",
+    "pretest": "yarn run rebuild",
+    "test": "lb-mocha --allow-console-logs \"dist/__tests__\"",
     "prestart": "yarn run rebuild",
     "start": "node -r source-map-support/register .",
     "worker": "node -r source-map-support/register dist/workers/report.worker.js",

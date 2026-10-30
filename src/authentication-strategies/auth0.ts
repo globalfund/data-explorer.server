@@ -5,16 +5,21 @@ import {securityId, UserProfile} from '@loopback/security';
 import * as jwt from 'jsonwebtoken';
 import {JwksClient} from 'jwks-rsa';
 
+// LoopBack creates a strategy instance per request, so a client held on the
+// instance would refetch the key set on every authenticated call.
+let jwksClient: JwksClient | undefined;
+
+const getJwksClient = () =>
+  (jwksClient ??= new JwksClient({
+    jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
+    cache: true,
+    cacheMaxAge: 10 * 60 * 1000,
+    rateLimit: true,
+    jwksRequestsPerMinute: 10,
+  }));
+
 export class Auth0Strategy implements AuthenticationStrategy {
   name = 'auth0';
-
-  private client: JwksClient;
-
-  constructor() {
-    this.client = new JwksClient({
-      jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
-    });
-  }
 
   async authenticate(request: Request): Promise<UserProfile | undefined> {
     const token = this.extractToken(request);
@@ -52,8 +57,16 @@ export class Auth0Strategy implements AuthenticationStrategy {
       throw new HttpErrors.Unauthorized('Invalid token');
     }
 
-    const key = await this.client.getSigningKey(decoded.header.kid);
-    const signingKey = key.getPublicKey();
+    let signingKey: string;
+    try {
+      const key = await getJwksClient().getSigningKey(decoded.header.kid);
+      signingKey = key.getPublicKey();
+    } catch (error) {
+      // Unknown key id or an unreachable key set: the token can't be trusted.
+      throw new HttpErrors.Unauthorized(
+        `Unable to verify token signing key: ${(error as Error).message}`,
+      );
+    }
 
     return new Promise((resolve, reject) => {
       jwt.verify(
@@ -89,8 +102,8 @@ export class Auth0Strategy implements AuthenticationStrategy {
         typeof payload.name === 'string'
           ? payload.name
           : typeof payload.nickname === 'string'
-            ? payload.nickname
-            : undefined,
+          ? payload.nickname
+          : undefined,
       email: typeof payload.email === 'string' ? payload.email : undefined,
     };
   }

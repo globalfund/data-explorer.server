@@ -1,9 +1,8 @@
+// Must be the first import: the modules below read process.env when loaded.
+import 'dotenv/config';
 import {Worker} from 'bullmq';
-import dotenv from 'dotenv';
-import {redisConnection} from '../queues/redis.connection';
+import {createWorkerConnection} from '../queues/redis.connection';
 import {screenshotReport} from '../utils/screenshotReport';
-
-dotenv.config();
 
 export const reportWorker = new Worker(
   'report-queue',
@@ -19,8 +18,9 @@ export const reportWorker = new Worker(
     }
   },
   {
-    connection: redisConnection,
-    concurrency: 5,
+    connection: createWorkerConnection(),
+    // Each job runs a full Chromium; keep this low.
+    concurrency: Number(process.env.THUMBNAIL_WORKER_CONCURRENCY ?? 2),
   },
 );
 
@@ -31,3 +31,14 @@ reportWorker.on('completed', job => {
 reportWorker.on('failed', (job, error) => {
   console.error(`Job ${job?.id} failed`, error);
 });
+
+// Let the current job finish (and its browser close) before exiting.
+const shutdown = () => {
+  reportWorker
+    .close()
+    .catch(error => console.error('Failed to close report worker', error))
+    .finally(() => process.exit(0));
+};
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

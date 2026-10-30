@@ -8,7 +8,6 @@ import {
   param,
   patch,
   post,
-  put,
   Request,
   requestBody,
   RestBindings,
@@ -20,6 +19,8 @@ import {AssetModel, FolderModel} from 'rb-core-middleware/dist/models';
 import {AssetService, FolderService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
 import {queueAssetThumbnailGeneration} from '../../queues/report.queue';
+import {assertServiceResult, omitServerManagedFields} from '../../utils/access';
+import {createFolderPathResolver} from '../../utils/folderTree';
 
 const getRequestOrigin = (request: Request) => {
   const host = request.headers.host;
@@ -78,9 +79,12 @@ export class AssetController {
     this.logger.info(
       `AssetController - create - Creating asset for user ${userId}`,
     );
-    const result = await this.assetService.create(userId, asset);
+    const result = await this.assetService.create(
+      userId,
+      omitServerManagedFields(asset, ['folderId']),
+    );
 
-    await queueAssetThumbnailGeneration((result as AssetModel)?.id, {
+    void queueAssetThumbnailGeneration((result as AssetModel)?.id, {
       authorization: this.request.headers.authorization,
       apiOrigin: getRequestOrigin(this.request),
     });
@@ -130,24 +134,7 @@ export class AssetController {
       JSON.parse(folderFilter || '{}') as Filter<FolderModel>,
     );
 
-    const folderById = new Map<string, FolderModel>(
-      allFolders.map(f => [f.id, f]),
-    );
-    const pathCache = new Map<string, string>();
-    const buildFolderPath = (folderId: string | undefined): string => {
-      if (!folderId) return 'My Workspace';
-      const cached = pathCache.get(folderId);
-      if (cached !== undefined) return cached;
-      const folder = folderById.get(folderId);
-      if (!folder) return 'My Workspace';
-      const parentPath = buildFolderPath(folder.parentId);
-      const path =
-        parentPath === 'My Workspace'
-          ? `My Workspace > ${folder.name}`
-          : `${parentPath} > ${folder.name}`;
-      pathCache.set(folderId, path);
-      return path;
-    };
+    const buildFolderPath = createFolderPathResolver(allFolders);
 
     const assetsWithPath = _.filter(
       assets,
@@ -212,7 +199,7 @@ export class AssetController {
     @param.path.string('id') id: string,
     @param.filter(AssetModel, {exclude: 'where'})
     filter?: FilterExcludingWhere<AssetModel>,
-  ): Promise<AssetModel | {error: string}> {
+  ): Promise<AssetModel> {
     const userId = this.getCurrentUserId();
     // const orgMembers = await getUsersOrganizationMembers(userId);
     // logger.info(`route</asset/{id}> Fetching asset- ${id}`);
@@ -220,7 +207,9 @@ export class AssetController {
     this.logger.info(
       `AssetController - findById - Fetching asset ${id} for user ${userId}`,
     );
-    return this.assetService.findById([userId], id, filter);
+    return assertServiceResult(
+      await this.assetService.findById([userId], id, filter),
+    );
   }
 
   @patch('/asset/{id}')
@@ -238,38 +227,23 @@ export class AssetController {
       },
     })
     asset: AssetModel,
-  ): Promise<void | {error: string}> {
+  ): Promise<void> {
     const userId = this.getCurrentUserId();
     this.logger.info(
       `AssetController - updateById - Updating asset ${id} for user ${userId}`,
     );
-    const result = await this.assetService.updateById(userId, id, asset);
-    await queueAssetThumbnailGeneration(id, {
-      authorization: this.request.headers.authorization,
-      apiOrigin: getRequestOrigin(this.request),
-    });
-    return result;
-  }
-
-  @put('/asset/{id}')
-  @response(204, {
-    description: 'Asset PUT success',
-  })
-  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
-  async replaceById(
-    @param.path.string('id') id: string,
-    @requestBody() asset: AssetModel,
-  ): Promise<void | {error: string}> {
-    const userId = this.getCurrentUserId();
-    this.logger.info(
-      `AssetController - replaceById - Replacing asset ${id} for user ${userId}`,
+    // Folder moves go through /folder/add-asset.
+    assertServiceResult(
+      await this.assetService.updateById(
+        userId,
+        id,
+        omitServerManagedFields(asset, ['folderId']),
+      ),
     );
-    const result = await this.assetService.replaceById(id, userId, asset);
-    await queueAssetThumbnailGeneration(id, {
+    void queueAssetThumbnailGeneration(id, {
       authorization: this.request.headers.authorization,
       apiOrigin: getRequestOrigin(this.request),
     });
-    return result;
   }
 
   @del('/asset/{id}')
@@ -277,14 +251,12 @@ export class AssetController {
     description: 'Asset DELETE success',
   })
   @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
-  async deleteById(
-    @param.path.string('id') id: string,
-  ): Promise<void | {error: string}> {
+  async deleteById(@param.path.string('id') id: string): Promise<void> {
     const userId = this.getCurrentUserId();
     this.logger.info(
       `AssetController - deleteById - Deleting asset ${id} for user ${userId}`,
     );
-    return this.assetService.deleteById(userId, id);
+    assertServiceResult(await this.assetService.deleteById(userId, id));
   }
 
   @get('/asset/duplicate/{id}')
@@ -304,6 +276,8 @@ export class AssetController {
     this.logger.info(
       `AssetController - duplicate - Duplicating asset ${id} for user ${userId}`,
     );
+    // The service copies any asset by id, so check read access first.
+    assertServiceResult(await this.assetService.findById([userId], id));
     return this.assetService.duplicate(userId, id);
   }
 }

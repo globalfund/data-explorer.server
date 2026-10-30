@@ -1,5 +1,6 @@
-import fs from 'fs';
+import {HttpErrors} from '@loopback/rest';
 import _ from 'lodash';
+import {readParsedDataset} from './parsedDataset';
 // @ts-expect-error untyped module
 import {chart as rawChart} from '@rawgraphs/rawgraphs-core';
 
@@ -134,7 +135,13 @@ export function renderChart(
   }
 
   const chart = charts[item.chartType];
+  if (!chart) {
+    throw new HttpErrors.BadRequest(
+      `Unsupported chart type: ${item.chartType}`,
+    );
+  }
 
+  let vizData;
   try {
     const viz = rawChart(chart, {
       data: filteredDataset,
@@ -142,27 +149,28 @@ export function renderChart(
       visualOptions: item.vizOptions,
       dataTypes: parsed.dataTypes,
     });
-
-    const vizData = viz._getVizData();
-
-    const tabItem = {
-      renderedContent: '',
-      appliedFilters: item.appliedFilters,
-      filterOptionGroups: getDatasetFilterOptions(
-        initialParsedDataset,
-        parsed.dataTypes,
-        false,
-        item.appliedFilters,
-      ),
-      dataTypes: parsed.dataTypes,
-      mappedData: vizData,
-      dimensions: chart.dimensions,
-      ssr: false,
-    };
-    return tabItem;
+    vizData = viz._getVizData();
   } catch (e) {
-    console.log(e);
+    // Usually a mapping that doesn't fit the chart or the dataset.
+    throw new HttpErrors.UnprocessableEntity(
+      `Could not render chart: ${(e as Error).message}`,
+    );
   }
+
+  return {
+    renderedContent: '',
+    appliedFilters: item.appliedFilters,
+    filterOptionGroups: getDatasetFilterOptions(
+      initialParsedDataset,
+      parsed.dataTypes,
+      false,
+      item.appliedFilters,
+    ),
+    dataTypes: parsed.dataTypes,
+    mappedData: vizData,
+    dimensions: chart.dimensions,
+    ssr: false,
+  };
 }
 
 export async function renderChartData(chartData: {
@@ -172,29 +180,6 @@ export async function renderChartData(chartData: {
   appliedFilters: any;
   datasetId: string;
 }) {
-  let parsed = null;
-  try {
-    const filePath =
-      process.env.PARSED_DATA_FILES_PATH ||
-      `../data-explorer.backend/parsed-data-files/`;
-    const parsedData = fs.readFileSync(
-      `${filePath}${chartData?.datasetId}.json`,
-    );
-
-    parsed = JSON.parse(parsedData.toString());
-  } catch (error) {
-    console.log('Error reading parsed data file', error);
-  }
-
-  let renderedChart;
-  try {
-    // render the chart
-    renderedChart = renderChart(chartData, parsed);
-    // Return the rendered chart item
-    // json stringify and save to ./rendered.json
-    console.log('Success...');
-    return renderedChart;
-  } catch (e) {
-    console.log(e);
-  }
+  const parsed = await readParsedDataset(chartData?.datasetId);
+  return renderChart(chartData, parsed);
 }
