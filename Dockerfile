@@ -1,7 +1,7 @@
-FROM node:16.19.1-alpine3.17
+FROM node:22.23.4-alpine
 
-# For development add /bin/bash
-RUN apk update && apk add --no-cache bash
+# For development add /bin/bash. git installs the rb-core packages from GitHub.
+RUN apk update && apk add --no-cache bash git
 
 # Set up the server directory
 WORKDIR /app

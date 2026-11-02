@@ -26,6 +26,14 @@ Whenever dependencies in `package.json` are changed, run the following command:
 yarn install
 ```
 
+### The rb-core packages
+
+`rb-core-middleware` and `rb-core.charts` are installed from their GitHub repositories, pinned to a commit in `package.json`; each builds itself on install, so `yarn install` needs `git`.
+
+To use a newer version, push the change to the package's repository, put the new commit hash in `package.json` and run `yarn install`.
+
+To work on a package locally, run `yarn link` in your checkout of it and `yarn link <package name>` here. Run its `yarn build` after each change. `yarn unlink <package name>` and `yarn install --force` switch back to the pinned commit.
+
 ## Run the application in development mode
 
 ```sh
