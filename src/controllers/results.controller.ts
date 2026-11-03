@@ -245,13 +245,14 @@ export class ResultsController {
     @param.path.string('cycle') cycle: string,
     @param.path.string('countryCode') countryCode: string,
   ) {
+    const search = _.toString(this.req.query.q).replace(/'/g, "''");
     let filterString = ResultsTableLocationMappingFields.urlParams
       .replace('<countryCode>', countryCode)
       .replace('<cycle>', cycle)
       .replace(
         '<search>',
-        this.req.query.q
-          ? ` AND (contains(geography/code,'${this.req.query.q}') OR contains(activityArea/name,'${this.req.query.q}') OR contains(indicatorName,'${this.req.query.q}'))`
+        search
+          ? ` AND (contains(geography/code,'${search}') OR contains(activityArea/name,'${search}') OR contains(indicatorName,'${search}'))`
           : '',
       );
     const url = `${urls.PROGRAMMATIC_INDICATORS}/${filterString}`;

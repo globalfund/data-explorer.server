@@ -560,14 +560,15 @@ export class GrantsController {
     @param.path.string('ip') ip: number,
   ) {
     const type = _.get(this.req.query, 'type', 'Impact indicator') as string;
+    const search = _.toString(this.req.query.q).replace(/'/g, "''");
     const url = `${
       urls.PROGRAMMATIC_INDICATORS
     }/${GrantTargetsResultsMapping.urlParams
       .replace('<grantIP>', `${id}P0${ip}`)
       .replace('<type>', type)}`.replace(
       '<search>',
-      this.req.query.q
-        ? ` AND (contains(activityArea/name,'${this.req.query.q}') OR contains(indicatorName,'${this.req.query.q}'))`
+      search
+        ? ` AND (contains(activityArea/name,'${search}') OR contains(indicatorName,'${search}'))`
         : '',
     );
 
