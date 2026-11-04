@@ -5,10 +5,10 @@ import {
   del,
   get,
   getModelSchemaRef,
+  HttpErrors,
   param,
   patch,
   post,
-  put,
   Request,
   requestBody,
   Response,
@@ -24,8 +24,18 @@ import {FolderService, ReportService} from 'rb-core-middleware/dist/services';
 import {getCache, setCache} from 'rb-core-middleware/dist/utils/redis';
 import {Logger} from 'winston';
 import {queueReportThumbnailGeneration} from '../../queues/report.queue';
+import {
+  assertSafeId,
+  assertServiceResult,
+  omitServerManagedFields,
+} from '../../utils/access';
+import {createFolderPathResolver} from '../../utils/folderTree';
 import {handleDataApiError} from '../../utils/dataApiError';
-import {ExportFormat, exportReport} from '../../utils/exportReport';
+import {
+  EXPORT_FORMATS,
+  ExportFormat,
+  exportReport,
+} from '../../utils/exportReport';
 import {
   filterDataset,
   getFilterOptions,
@@ -77,11 +87,8 @@ export class ReportController {
   @response(200)
   @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async renderChart(@requestBody() body: any) {
-    try {
-      return await renderChartData(body);
-    } catch (e) {
-      handleDataApiError(e);
-    }
+    assertSafeId(body?.datasetId, 'datasetId');
+    return renderChartData(body);
   }
 
   @post('/report/filter-dataset')
@@ -100,20 +107,17 @@ export class ReportController {
       groupRemainderAsOther: boolean;
     },
   ) {
-    try {
-      return await filterDataset({
-        appliedFilters: body.filters,
-        sortOptions: body.sorting,
-        datasetId: body.datasetId,
-        page: page,
-        pageSize: pageSize,
-        limitToTop: body.limitToTop,
-        limitToTopValue: body.limitToTopValue,
-        groupRemainderAsOther: body.groupRemainderAsOther,
-      });
-    } catch (e) {
-      handleDataApiError(e);
-    }
+    assertSafeId(body?.datasetId, 'datasetId');
+    return filterDataset({
+      appliedFilters: body.filters,
+      sortOptions: body.sorting,
+      datasetId: body.datasetId,
+      page: page,
+      pageSize: pageSize,
+      limitToTop: body.limitToTop,
+      limitToTopValue: body.limitToTopValue,
+      groupRemainderAsOther: body.groupRemainderAsOther,
+    });
   }
 
   @post('/report/filter-options')
@@ -122,14 +126,11 @@ export class ReportController {
   async getFilterOptions(
     @requestBody() body: {filters: any; datasetId: string},
   ) {
-    try {
-      return await getFilterOptions({
-        appliedFilters: body.filters,
-        datasetId: body.datasetId,
-      });
-    } catch (e) {
-      handleDataApiError(e);
-    }
+    assertSafeId(body?.datasetId, 'datasetId');
+    return getFilterOptions({
+      appliedFilters: body.filters,
+      datasetId: body.datasetId,
+    });
   }
 
   @post('/report')
@@ -155,7 +156,10 @@ export class ReportController {
     this.logger.info(
       `ReportController - create - Creating report for user ${userId}`,
     );
-    const result = await this.reportService.create(userId, report);
+    const result = await this.reportService.create(
+      userId,
+      omitServerManagedFields(report, ['folderId']),
+    );
     const reportId = _.get(result, 'id');
     if (reportId) {
       try {
@@ -206,7 +210,6 @@ export class ReportController {
     }[]
   > {
     const userId = this.getCurrentUserId();
-    console.log(userId);
     this.logger.info(
       `ReportController - find - Fetching reports for user ${userId}`,
     );
@@ -216,24 +219,7 @@ export class ReportController {
       JSON.parse(folderFilter || '{}') as Filter<FolderModel>,
     );
 
-    const folderById = new Map<string, FolderModel>(
-      allFolders.map(f => [f.id, f]),
-    );
-    const pathCache = new Map<string, string>();
-    const buildFolderPath = (folderId: string | undefined): string => {
-      if (!folderId) return 'My Workspace';
-      const cached = pathCache.get(folderId);
-      if (cached !== undefined) return cached;
-      const folder = folderById.get(folderId);
-      if (!folder) return 'My Workspace';
-      const parentPath = buildFolderPath(folder.parentId);
-      const path =
-        parentPath === 'My Workspace'
-          ? `My Workspace > ${folder.name}`
-          : `${parentPath} > ${folder.name}`;
-      pathCache.set(folderId, path);
-      return path;
-    };
+    const buildFolderPath = createFolderPathResolver(allFolders);
 
     const reportsWithPath = _.filter(
       reports,
@@ -298,7 +284,7 @@ export class ReportController {
     @param.path.string('id') id: string,
     @param.filter(ReportModel, {exclude: 'where'})
     filter?: FilterExcludingWhere<ReportModel>,
-  ): Promise<ReportModel | {error: string}> {
+  ): Promise<ReportModel> {
     const userId = this.getCurrentUserId();
     // const orgMembers = await getUsersOrganizationMembers(userId);
     // logger.info(`route</report/{id}> Fetching report- ${id}`);
@@ -306,7 +292,9 @@ export class ReportController {
     this.logger.info(
       `ReportController - findById - Fetching report ${id} for user ${userId}`,
     );
-    return this.reportService.findById([userId], id, filter);
+    return assertServiceResult(
+      await this.reportService.findById([userId], id, filter),
+    );
   }
 
   @patch('/report/{id}')
@@ -324,37 +312,23 @@ export class ReportController {
       },
     })
     report: ReportModel,
-  ): Promise<void | {error: string}> {
+  ): Promise<void> {
     const userId = this.getCurrentUserId();
     this.logger.info(
       `ReportController - updateById - Updating report ${id} for user ${userId}`,
     );
-    const updateResult = await this.reportService.updateById(
-      userId,
-      id,
-      report,
+    // Folder moves go through /folder/add-report.
+    assertServiceResult(
+      await this.reportService.updateById(
+        userId,
+        id,
+        omitServerManagedFields(report, ['folderId']),
+      ),
     );
-    await queueReportThumbnailGeneration(id, {
+    void queueReportThumbnailGeneration(id, {
       authorization: this.request.headers.authorization,
       apiOrigin: getRequestOrigin(this.request),
     });
-    return updateResult;
-  }
-
-  @put('/report/{id}')
-  @response(204, {
-    description: 'Report PUT success',
-  })
-  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
-  async replaceById(
-    @param.path.string('id') id: string,
-    @requestBody() report: ReportModel,
-  ): Promise<void | {error: string}> {
-    const userId = this.getCurrentUserId();
-    this.logger.info(
-      `ReportController - replaceById - Replacing report ${id} for user ${userId}`,
-    );
-    return this.reportService.replaceById(id, userId, report);
   }
 
   @del('/report/{id}')
@@ -362,13 +336,13 @@ export class ReportController {
     description: 'Report DELETE success',
   })
   @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
-  async deleteById(
-    @param.path.string('id') id: string,
-  ): Promise<void | {error: string}> {
+  async deleteById(@param.path.string('id') id: string): Promise<void> {
     const userId = this.getCurrentUserId();
     this.logger.info(
       `ReportController - deleteById - Deleting report ${id} for user ${userId}`,
     );
+    assertSafeId(id);
+    assertServiceResult(await this.reportService.deleteById(userId, id));
     try {
       await fs.unlink(`./public/report-thumbnail/${id}.png`);
     } catch (error) {
@@ -376,7 +350,6 @@ export class ReportController {
         `ReportController - deleteById - Thumbnail not found for report ${id}`,
       );
     }
-    return this.reportService.deleteById(userId, id);
   }
 
   @get('/report/duplicate/{id}')
@@ -396,6 +369,9 @@ export class ReportController {
     this.logger.info(
       `ReportController - duplicate - Duplicating report ${id} for user ${userId}`,
     );
+    assertSafeId(id);
+    // The service copies any report by id, so check read access first.
+    assertServiceResult(await this.reportService.findById([userId], id));
     const result = await this.reportService.duplicate(userId, id);
     const newReportId = _.get(result, 'id');
     if (newReportId) {
@@ -417,6 +393,7 @@ export class ReportController {
   @response(200)
   @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async getSampleGFDataset(@param.path.string('datasetId') datasetId: string) {
+    assertSafeId(datasetId, 'datasetId');
     const cachedData = await getCache(`sample-data-${datasetId}`);
     if (cachedData) {
       this.logger.info(
@@ -446,6 +423,7 @@ export class ReportController {
     @param.query.number('pageSize') pageSize: number,
     @param.query.number('page') page: number,
   ) {
+    assertSafeId(datasetId, 'datasetId');
     return axios
       .get(`${process.env.BACKEND_API_BASE_URL}/dataset/${datasetId}`, {
         headers: {
@@ -477,6 +455,11 @@ export class ReportController {
     @param.path.string('format') format: ExportFormat,
     @param.query.boolean('asset') asset: boolean = false,
   ) {
+    // Validate before launching a browser for the export.
+    assertSafeId(id);
+    if (!EXPORT_FORMATS.includes(format)) {
+      throw new HttpErrors.BadRequest(`Unsupported export format: ${format}`);
+    }
     const result = await exportReport(id, format, asset, {
       authorization: this.request.headers.authorization,
       apiOrigin: getRequestOrigin(this.request),
@@ -519,7 +502,9 @@ export class ReportController {
     await rateLimitErrorReport(userId);
     await sendErrorReportToSlack({...body, userId});
     this.logger.info(
-      `ReportController - reportError - Error report submitted by ${userId} (${user?.email ?? 'no-email'})`,
+      `ReportController - reportError - Error report submitted by ${userId} (${
+        user?.email ?? 'no-email'
+      })`,
     );
     return {message: 'Error reported successfully'};
   }

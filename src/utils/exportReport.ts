@@ -1,7 +1,45 @@
+import {HttpErrors} from '@loopback/rest';
 import puppeteer from 'puppeteer';
 import {attachPuppeteerAuthorization, PuppeteerAuth} from './puppeteerAuth';
 
-export type ExportFormat = 'pdf' | 'png' | 'svg';
+const NAVIGATION_TIMEOUT_MS = 60_000;
+
+/**
+ * Each export runs a full Chromium inside the API process, so cap how many
+ * run at once per process and turn away requests when the wait gets long.
+ */
+const MAX_CONCURRENT_EXPORTS = Number(process.env.MAX_CONCURRENT_EXPORTS ?? 2);
+const MAX_QUEUED_EXPORTS = 10;
+
+let activeExports = 0;
+const waitingExports: (() => void)[] = [];
+
+const acquireExportSlot = async () => {
+  if (activeExports < MAX_CONCURRENT_EXPORTS) {
+    activeExports++;
+    return;
+  }
+  if (waitingExports.length >= MAX_QUEUED_EXPORTS) {
+    throw new HttpErrors.ServiceUnavailable(
+      'Too many exports in progress. Please try again shortly.',
+    );
+  }
+  // The releasing export hands its slot over, so the count stays the same.
+  await new Promise<void>(resolve => waitingExports.push(resolve));
+};
+
+const releaseExportSlot = () => {
+  const next = waitingExports.shift();
+  if (next) {
+    next();
+  } else {
+    activeExports--;
+  }
+};
+
+export const EXPORT_FORMATS = ['pdf', 'png', 'svg'] as const;
+
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 type ExportResult = {
   data: Buffer;
@@ -26,6 +64,21 @@ export const exportReport = async (
     frontendUrl,
   ).toString();
 
+  await acquireExportSlot();
+  try {
+    return await renderExport(url, reportId, format, asset, auth);
+  } finally {
+    releaseExportSlot();
+  }
+};
+
+const renderExport = async (
+  url: string,
+  reportId: string,
+  format: ExportFormat,
+  asset: boolean,
+  auth: PuppeteerAuth,
+): Promise<ExportResult> => {
   const browser = await puppeteer.launch({
     headless: true,
   });
@@ -43,6 +96,7 @@ export const exportReport = async (
 
     await page.goto(url, {
       waitUntil: 'networkidle0',
+      timeout: NAVIGATION_TIMEOUT_MS,
     });
 
     // Optional: wait for your report root element if needed

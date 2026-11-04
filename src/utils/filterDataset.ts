@@ -1,7 +1,8 @@
+import {HttpErrors} from '@loopback/rest';
 import dayjs from 'dayjs';
 import customParseFormat from 'dayjs/plugin/customParseFormat';
-import fs from 'fs';
 import _ from 'lodash';
+import {readParsedDataset} from './parsedDataset';
 
 dayjs.extend(customParseFormat);
 
@@ -74,7 +75,7 @@ function filterData(
 
   Object.keys(cleanedFilters).forEach(key => {
     if (!Array.isArray(cleanedFilters[key])) {
-      throw new Error(`Filter for key ${key} must be an array`);
+      throw new HttpErrors.BadRequest(`Filter for key ${key} must be an array`);
     }
 
     if (cleanedFilters[key].length === 0) {
@@ -174,42 +175,18 @@ function getDatasetFilterOptions(
   return filterOptions;
 }
 
-const getDataset = async (datasetId: string) => {
-  let parsed = null;
-  try {
-    const filePath =
-      process.env.PARSED_DATA_FILES_PATH ||
-      `../data-explorer.backend/parsed-data-files/`;
-    const parsedData = fs.readFileSync(`${filePath}${datasetId}.json`);
-
-    return JSON.parse(parsedData.toString());
-  } catch (error) {
-    console.log('Error reading parsed data file', error);
-    return null;
-  }
-};
-
 export async function getFilterOptions(datasetDetails: {
   appliedFilters: any;
   datasetId: string;
 }) {
-  try {
-    const parsed = await getDataset(datasetDetails.datasetId);
-    if (!parsed) {
-      throw new Error('Dataset not found');
-    }
-    const initialParsedDataset = parsed.dataset;
+  const parsed = await readParsedDataset(datasetDetails.datasetId);
 
-    return getDatasetFilterOptions(
-      initialParsedDataset,
-      parsed.dataTypes,
-      false,
-      datasetDetails.appliedFilters,
-    );
-  } catch (e) {
-    console.log(e);
-    return [];
-  }
+  return getDatasetFilterOptions(
+    parsed.dataset,
+    parsed.dataTypes,
+    false,
+    datasetDetails.appliedFilters,
+  );
 }
 
 const limitToTop = (
@@ -231,7 +208,7 @@ const limitToTop = (
     Object.keys(dataTypes).forEach(key => {
       if (dataTypes[key] === 'number') {
         otherItem[key] = otherItems.reduce(
-          (sum, item) => sum + (item[key] || 0),
+          (sum, item) => sum + (Number(item[key]) || 0),
           0,
         );
       } else {
@@ -254,51 +231,40 @@ export async function filterDataset(datasetDetails: {
   limitToTopValue?: string;
   groupRemainderAsOther?: boolean;
 }) {
-  try {
-    const parsed = await getDataset(datasetDetails.datasetId);
-    if (!parsed) {
-      throw new Error('Dataset not found');
-    }
-    const initialParsedDataset = parsed.dataset;
-    let filteredDataset = initialParsedDataset;
+  const parsed = await readParsedDataset(datasetDetails.datasetId);
+  const initialParsedDataset = parsed.dataset;
+  let filteredDataset = initialParsedDataset;
 
-    if (
-      !_.isEmpty(datasetDetails.appliedFilters) ||
-      !_.isEmpty(datasetDetails.sortOptions)
-    ) {
-      filteredDataset = filterAndSortData(
-        initialParsedDataset,
-        datasetDetails.appliedFilters,
-        datasetDetails.sortOptions,
-        parsed.dataTypes,
-      );
-    }
-    const page = datasetDetails.page ? parseInt(datasetDetails.page, 10) : 1;
-    const pageSize = datasetDetails.pageSize
-      ? parseInt(datasetDetails.pageSize, 10)
-      : undefined;
-
-    const start = pageSize ? (page - 1) * pageSize : 0;
-    const end = pageSize ? start + pageSize : undefined;
-
-    const resultDataset = datasetDetails.limitToTop
-      ? limitToTop(
-          filteredDataset,
-          parseInt(datasetDetails.limitToTopValue || '0', 10),
-          parsed.dataTypes,
-          datasetDetails.groupRemainderAsOther || false,
-        )
-      : filteredDataset.slice(start, end);
-
-    return {
-      result: resultDataset,
-      count: filteredDataset.length,
-    };
-  } catch (e) {
-    console.log(e);
-    return {
-      result: [],
-      count: 0,
-    };
+  if (
+    !_.isEmpty(datasetDetails.appliedFilters) ||
+    !_.isEmpty(datasetDetails.sortOptions)
+  ) {
+    filteredDataset = filterAndSortData(
+      initialParsedDataset,
+      datasetDetails.appliedFilters,
+      datasetDetails.sortOptions,
+      parsed.dataTypes,
+    );
   }
+  const page = datasetDetails.page ? parseInt(datasetDetails.page, 10) : 1;
+  const pageSize = datasetDetails.pageSize
+    ? parseInt(datasetDetails.pageSize, 10)
+    : undefined;
+
+  const start = pageSize ? (page - 1) * pageSize : 0;
+  const end = pageSize ? start + pageSize : undefined;
+
+  const resultDataset = datasetDetails.limitToTop
+    ? limitToTop(
+        filteredDataset,
+        parseInt(datasetDetails.limitToTopValue || '0', 10),
+        parsed.dataTypes,
+        datasetDetails.groupRemainderAsOther || false,
+      )
+    : filteredDataset.slice(start, end);
+
+  return {
+    result: resultDataset,
+    count: filteredDataset.length,
+  };
 }

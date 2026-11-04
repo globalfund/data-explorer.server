@@ -1,38 +1,84 @@
-// import {authenticate} from '@loopback/authentication';
+import {authenticate, AuthenticationBindings} from '@loopback/authentication';
 import {inject} from '@loopback/core';
 import {Filter, FilterExcludingWhere} from '@loopback/filter/dist/query';
 import {
   del,
   get,
   getModelSchemaRef,
+  HttpErrors,
   param,
   patch,
   post,
-  put,
-  Request,
   requestBody,
   response,
-  RestBindings,
 } from '@loopback/rest';
+import {securityId, UserProfile} from '@loopback/security';
 import _ from 'lodash';
 import {FolderModel} from 'rb-core-middleware/dist/models';
-import {FolderService, ReportService} from 'rb-core-middleware/dist/services';
+import {FolderService} from 'rb-core-middleware/dist/services';
+import {handleDeleteCache} from 'rb-core-middleware/dist/utils/redis';
 import {Logger} from 'winston';
+import {
+  assertOwner,
+  assertServiceResult,
+  omitServerManagedFields,
+} from '../../utils/access';
+import {
+  buildFolderTree,
+  createFolderPathResolver,
+} from '../../utils/folderTree';
+
+const ROOT_FOLDER_ID = '__root__';
 
 export class FolderController {
   constructor(
-    @inject(RestBindings.Http.REQUEST) private req: Request,
     @inject('services.logger') private logger: Logger,
     @inject('services.FolderService') private folderService: FolderService,
-    @inject('services.ReportService') private reportService: ReportService,
+    @inject(AuthenticationBindings.CURRENT_USER, {optional: true})
+    private currentUserProfile?: UserProfile,
   ) {}
+
+  private getCurrentUserId(): string {
+    return (
+      this.currentUserProfile?.id ??
+      (typeof this.currentUserProfile?.[securityId] === 'string'
+        ? this.currentUserProfile[securityId]
+        : undefined) ??
+      'anonymous'
+    );
+  }
+
+  /**
+   * Walks up from the target parent; reaching the moved folder means the move
+   * would create a cycle (which makes folder path building recurse forever).
+   */
+  private async assertNotMovingIntoItself(
+    folderId: string,
+    targetParentId: string,
+  ) {
+    const visited = new Set<string>();
+    let currentId: string | undefined = targetParentId;
+    while (currentId && !visited.has(currentId)) {
+      if (currentId === folderId) {
+        throw new HttpErrors.BadRequest(
+          'Cannot move a folder into itself or one of its subfolders',
+        );
+      }
+      visited.add(currentId);
+      const current: FolderModel | null =
+        await this.folderService.folderRepository.findOne({
+          where: {id: currentId},
+        });
+      currentId = current?.parentId;
+    }
+  }
 
   @post('/folder')
   @response(200, {
     description: 'FolderModel instance',
     content: {'application/json': {schema: getModelSchemaRef(FolderModel)}},
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async create(
     @requestBody({
       content: {
@@ -46,11 +92,21 @@ export class FolderController {
     })
     folder: Omit<FolderModel, 'id'>,
   ): Promise<FolderModel | {error: string; errorType: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - create - Creating folder for user ${userId}`,
     );
-    return this.folderService.create(userId, folder);
+    const newFolder = omitServerManagedFields(folder);
+    if (newFolder.parentId === ROOT_FOLDER_ID) {
+      delete (newFolder as Partial<FolderModel>).parentId;
+    }
+    if (newFolder.parentId) {
+      const parent = await this.folderService.folderRepository.findById(
+        newFolder.parentId,
+      );
+      assertOwner(parent, userId);
+    }
+    return this.folderService.create(userId, newFolder);
   }
 
   @get('/folders')
@@ -65,37 +121,22 @@ export class FolderController {
       },
     },
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async find(
     @param.filter(FolderModel) filter?: Filter<FolderModel>,
     @param.query.string('includeSubFolders') includeSubFolders?: string,
   ): Promise<any[]> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - find - Fetching folders for user ${userId}`,
     );
     if (Boolean(includeSubFolders)) {
-      return this.folderService.getAllFoldersWithSubfolders(userId, filter);
+      // Built here rather than with getAllFoldersWithSubfolders, which throws
+      // when a folder's parent is missing from the results.
+      return buildFolderTree(await this.folderService.find(userId, filter));
     } else {
       const folders = await this.folderService.find(userId, filter);
-      const folderById = new Map<string, FolderModel>(
-        folders.map(f => [f.id, f]),
-      );
-      const pathCache = new Map<string, string>();
-      const buildFolderPath = (folderId: string | undefined): string => {
-        if (!folderId) return 'My Workspace';
-        const cached = pathCache.get(folderId);
-        if (cached !== undefined) return cached;
-        const folder = folderById.get(folderId);
-        if (!folder) return 'My Workspace';
-        const parentPath = buildFolderPath(folder.parentId);
-        const path =
-          parentPath === 'My Workspace'
-            ? `My Workspace > ${folder.name}`
-            : `${parentPath} > ${folder.name}`;
-        pathCache.set(folderId, path);
-        return path;
-      };
+      const buildFolderPath = createFolderPathResolver(folders);
 
       const foldersWithPath = _.filter(folders, folder => !folder.parentId).map(
         folder => {
@@ -119,27 +160,26 @@ export class FolderController {
       },
     },
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async findById(
     @param.path.string('id') id: string,
     @param.filter(FolderModel, {exclude: 'where'})
     filter?: FilterExcludingWhere<FolderModel>,
-  ): Promise<FolderModel | {error: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
-    // const orgMembers = await getUsersOrganizationMembers(userId);
-    // logger.info(`route</folder/{id}> Fetching folder- ${id}`);
-    // logger.debug(`Finding folder- ${id} with filter- ${JSON.stringify(filter)}`);
+  ): Promise<FolderModel> {
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - findById - Fetching folder ${id} for user ${userId}`,
     );
-    return this.folderService.findById([userId], id, filter);
+    return assertServiceResult(
+      await this.folderService.findById([userId], id, filter),
+    );
   }
 
   @patch('/folder/{id}')
   @response(204, {
     description: 'Folder PATCH success',
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async updateById(
     @param.path.string('id') id: string,
     @requestBody({
@@ -150,43 +190,57 @@ export class FolderController {
       },
     })
     folder: FolderModel,
-  ): Promise<void | {error: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+  ): Promise<void> {
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - updateById - Updating folder ${id} for user ${userId}`,
     );
-    return this.folderService.updateById(userId, id, folder);
-  }
-
-  @put('/folder/{id}')
-  @response(204, {
-    description: 'Folder PUT success',
-  })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
-  async replaceById(
-    @param.path.string('id') id: string,
-    @requestBody() folder: FolderModel,
-  ): Promise<void | {error: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
-    this.logger.info(
-      `FolderController - replaceById - Replacing folder ${id} for user ${userId}`,
+    // Moves go through /folder/add-folder so the parent ownership and cycle
+    // checks can't be bypassed.
+    assertServiceResult(
+      await this.folderService.updateById(
+        userId,
+        id,
+        omitServerManagedFields(folder, ['parentId']),
+      ),
     );
-    return this.folderService.replaceById(id, userId, folder);
   }
 
   @del('/folder/{id}')
   @response(204, {
     description: 'Folder DELETE success',
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
-  async deleteById(
-    @param.path.string('id') id: string,
-  ): Promise<void | {error: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  async deleteById(@param.path.string('id') id: string): Promise<void> {
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - deleteById - Deleting folder ${id} for user ${userId}`,
     );
-    return this.folderService.deleteById(userId, id);
+    const folder = await this.folderService.folderRepository.findById(id);
+    assertOwner(folder, userId);
+    // The service only deletes the folder document. Move its contents up to
+    // its parent (or the workspace root) so they aren't left pointing at a
+    // folder that no longer exists, which hides them from every listing.
+    const parentId = folder.parentId ?? undefined;
+    const updatedDate = new Date().toISOString();
+    await Promise.all([
+      this.folderService.reportRepository.updateAll(
+        {folderId: parentId, updatedDate},
+        {folderId: id},
+      ),
+      this.folderService.assetRepository.updateAll(
+        {folderId: parentId, updatedDate},
+        {folderId: id},
+      ),
+      this.folderService.folderRepository.updateAll(
+        {parentId, updatedDate},
+        {parentId: id},
+      ),
+    ]);
+    assertServiceResult(await this.folderService.deleteById(userId, id));
+    if (parentId) {
+      await handleDeleteCache({asset: 'folder', assetId: parentId, userId});
+    }
   }
 
   @get('/folder/duplicate/{id}')
@@ -198,14 +252,15 @@ export class FolderController {
       },
     },
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async duplicate(
     @param.path.string('id') id: string,
   ): Promise<FolderModel | {error: string; errorType: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - duplicate - Duplicating folder ${id} for user ${userId}`,
     );
+    assertServiceResult(await this.folderService.findById([userId], id));
     return this.folderService.duplicate(userId, id);
   }
 
@@ -218,15 +273,35 @@ export class FolderController {
       },
     },
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async addAssetToFolder(
     @param.path.string('id') id: string,
     @param.query.string('assetId') assetId: string,
   ): Promise<FolderModel | {error: string; errorType: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - addAssetToFolder - Adding asset ${assetId} to folder ${id} for user ${userId}`,
     );
+    // The service also accepts public/baseline assets, but moving one would
+    // pull it out of its owner's folder.
+    const asset = await this.folderService.assetRepository.findById(assetId);
+    assertOwner(asset, userId);
+    if (id === ROOT_FOLDER_ID) {
+      // addAsset has no root branch (unlike addReport) and would 404 looking
+      // up a folder called __root__.
+      await this.folderService.assetRepository.updateById(assetId, {
+        folderId: undefined,
+        updatedDate: new Date().toISOString(),
+      });
+      if (asset.folderId) {
+        await handleDeleteCache({
+          asset: 'folder',
+          assetId: asset.folderId,
+          userId,
+        });
+      }
+      return {id: ROOT_FOLDER_ID, name: 'My Workspace'} as FolderModel;
+    }
     return this.folderService.addAsset(userId, id, assetId);
   }
 
@@ -239,12 +314,12 @@ export class FolderController {
       },
     },
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async removeAssetFromFolder(
     @param.path.string('id') id: string,
     @param.query.string('assetId') assetId: string,
   ): Promise<FolderModel | {error: string; errorType: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - removeAssetFromFolder - Removing asset ${assetId} from folder ${id} for user ${userId}`,
     );
@@ -260,25 +335,24 @@ export class FolderController {
       },
     },
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async addReportToFolder(
     @param.path.string('id') id: string,
     @param.query.string('reportId') reportId: string,
   ): Promise<FolderModel | {error: string; errorType: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - addReportToFolder - Adding report ${reportId} to folder ${id} for user ${userId}`,
     );
-    const reportPrevFolder = await this.reportService.findById(
-      [userId],
-      reportId,
-    );
+    // Required for every target, including the root which the service
+    // doesn't check at all.
+    const report = await this.folderService.reportRepository.findById(reportId);
+    assertOwner(report, userId);
     return this.folderService.addReport(
       userId,
       id,
       reportId,
-      // @ts-ignore
-      reportPrevFolder?.folderId ?? undefined,
+      report.folderId ?? undefined,
     );
   }
 
@@ -291,12 +365,12 @@ export class FolderController {
       },
     },
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async removeReportFromFolder(
     @param.path.string('id') id: string,
     @param.query.string('reportId') reportId: string,
   ): Promise<FolderModel | {error: string; errorType: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - removeReportFromFolder - Removing report ${reportId} from folder ${id} for user ${userId}`,
     );
@@ -312,25 +386,25 @@ export class FolderController {
       },
     },
   })
-  // @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
+  @authenticate({strategy: 'auth0', options: {scopes: ['greet']}})
   async addFolderToFolder(
     @param.path.string('id') id: string,
     @param.query.string('folderId') folderId: string,
   ): Promise<FolderModel | {error: string; errorType: string}> {
-    const userId = _.get(this.req, 'user.sub', 'anonymous');
+    const userId = this.getCurrentUserId();
     this.logger.info(
       `FolderController - addFolderToFolder - Adding folder ${folderId} to folder ${id} for user ${userId}`,
     );
-    const folderPrevFolder = await this.folderService.findById(
-      [userId],
-      folderId,
-    );
+    const folder = await this.folderService.folderRepository.findById(folderId);
+    assertOwner(folder, userId);
+    if (id !== ROOT_FOLDER_ID) {
+      await this.assertNotMovingIntoItself(folderId, id);
+    }
     return this.folderService.addFolder(
       userId,
       id,
       folderId,
-      // @ts-ignore
-      folderPrevFolder?.folderId ?? undefined,
+      folder.parentId ?? undefined,
     );
   }
 }

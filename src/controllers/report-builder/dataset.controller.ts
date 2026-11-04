@@ -12,6 +12,7 @@ import {
 import {DatasetModel} from 'rb-core-middleware/dist/models';
 import {DatasetService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
+import {assertSafeId} from '../../utils/access';
 
 export class DatasetController {
   constructor(
@@ -58,6 +59,7 @@ export class DatasetController {
     this.logger.info(
       `DatasetController - datasetContent - Fetching content for dataset ${id}`,
     );
+    assertSafeId(id, 'datasetId');
     return this.datasetService.datasetContent(
       id,
       page,
