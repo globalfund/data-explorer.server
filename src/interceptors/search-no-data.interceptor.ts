@@ -8,6 +8,7 @@ import {
 } from '@loopback/core';
 import {Request, RestBindings} from '@loopback/rest';
 import _ from 'lodash';
+import {logSearchNoData} from '../utils/searchNoDataLogger';
 
 // Returns true when a controller result has nothing to show the user.
 // Handles the global search shape ({data: [{name, results: []}]}) and the
@@ -33,7 +34,8 @@ function isNoDataResult(result: any): boolean {
 
 /**
  * Logs every request with a non-empty "q" search param that comes back
- * with no data, as one JSON line, e.g.
+ * with no data, as one JSON line in its own log file
+ * (logs/search-no-data-YYYY-MM-DD.log), e.g.
  * {"event":"search_no_data","endpoint":"/global-search","q":"covid",...}
  */
 @globalInterceptor('', {tags: {name: 'searchNoData'}})
@@ -53,19 +55,17 @@ export class SearchNoDataInterceptor implements Provider<Interceptor> {
       });
       const q = _.toString(req?.query.q).trim();
       if (req && q.length > 0 && isNoDataResult(result)) {
-        console.log(
-          JSON.stringify({
-            event: 'search_no_data',
-            timestamp: new Date().toISOString(),
-            endpoint: req.path,
-            q,
-            // other filters sent with the search, e.g. geographies, components
-            params: _.omit(req.query, 'q'),
-            // set when the upstream data API call failed (see handleDataApiError)
-            error:
-              typeof result.message === 'string' ? result.message : undefined,
-          }),
-        );
+        logSearchNoData({
+          event: 'search_no_data',
+          timestamp: new Date().toISOString(),
+          endpoint: req.path,
+          q,
+          // other filters sent with the search, e.g. geographies, components
+          params: _.omit(req.query, 'q'),
+          // set when the upstream data API call failed (see handleDataApiError)
+          error:
+            typeof result.message === 'string' ? result.message : undefined,
+        });
       }
     } catch (err) {
       console.error('search-no-data logging failed', err);
