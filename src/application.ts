@@ -16,7 +16,6 @@ import {
 } from '@loopback/rest-explorer';
 import {ServiceMixin} from '@loopback/service-proxy';
 import dotenv from 'dotenv';
-import multer from 'multer';
 import path from 'path';
 import {
   RbCoreMiddlewareComponent,
@@ -25,7 +24,6 @@ import {
 import {Logger} from 'winston';
 import {Auth0Strategy} from './authentication-strategies';
 import {DbDataSource, DbDataSourceConfig} from './datasources';
-import {FILE_UPLOAD_SERVICE, STORAGE_DIRECTORY} from './keys';
 import {LoggerProvider} from './providers/logger.provider';
 
 dotenv.config();
@@ -72,9 +70,6 @@ export class ApiApplication extends BootMixin(
     );
     this.bind<Logger>('services.logger').toProvider(LoggerProvider);
 
-    // Configure file upload with multer options
-    this.configureFileUpload(options.fileStorageDirectory);
-
     this.projectRoot = __dirname;
     // Customize @loopback/boot Booter Conventions here
     this.bootOptions = {
@@ -85,26 +80,5 @@ export class ApiApplication extends BootMixin(
         nested: true,
       },
     };
-  }
-
-  /**
-   * Configure `multer` options for file upload
-   */
-  protected configureFileUpload(destination?: string) {
-    // Upload files to `dist/.sandbox` by default
-    destination =
-      destination ?? path.join(__dirname, '../public/report-thumbnail');
-    this.bind(STORAGE_DIRECTORY).to(destination);
-    const multerOptions: multer.Options = {
-      storage: multer.diskStorage({
-        destination,
-        // Use the original file name as is
-        filename: (req, file, cb) => {
-          cb(null, file.originalname);
-        },
-      }),
-    };
-    // Configure the file upload service with multer options
-    this.configure(FILE_UPLOAD_SERVICE).to(multerOptions);
   }
 }

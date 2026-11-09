@@ -1,7 +1,7 @@
 // src/utils/rateLimit.ts
 
 import {HttpErrors} from '@loopback/rest';
-import {redisConnection} from '../queues/redis.connection';
+import {getReadyRequestConnection} from '../queues/redis.connection';
 
 const incrementScript = `
   local current = redis.call('INCR', KEYS[1])
@@ -23,7 +23,9 @@ async function checkWindow({
   windowSeconds: number;
 }) {
   const count = Number(
-    await redisConnection.eval(incrementScript, 1, key, windowSeconds),
+    await (
+      await getReadyRequestConnection()
+    ).eval(incrementScript, 1, key, windowSeconds),
   );
 
   if (count > limit) {
