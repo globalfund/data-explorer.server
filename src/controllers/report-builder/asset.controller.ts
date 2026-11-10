@@ -18,7 +18,10 @@ import _ from 'lodash';
 import {AssetModel, FolderModel} from 'rb-core-middleware/dist/models';
 import {AssetService, FolderService} from 'rb-core-middleware/dist/services';
 import {Logger} from 'winston';
-import {queueAssetThumbnailGeneration} from '../../queues/report.queue';
+import {
+  cancelAssetThumbnailGeneration,
+  queueAssetThumbnailGeneration,
+} from '../../queues/report.queue';
 import {assertServiceResult, omitServerManagedFields} from '../../utils/access';
 import {createFolderPathResolver} from '../../utils/folderTree';
 
@@ -257,6 +260,7 @@ export class AssetController {
       `AssetController - deleteById - Deleting asset ${id} for user ${userId}`,
     );
     assertServiceResult(await this.assetService.deleteById(userId, id));
+    void cancelAssetThumbnailGeneration(id);
   }
 
   @get('/asset/duplicate/{id}')

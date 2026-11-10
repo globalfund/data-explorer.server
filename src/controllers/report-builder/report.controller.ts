@@ -23,7 +23,10 @@ import {FolderModel, ReportModel} from 'rb-core-middleware/dist/models';
 import {FolderService, ReportService} from 'rb-core-middleware/dist/services';
 import {getCache, setCache} from 'rb-core-middleware/dist/utils/redis';
 import {Logger} from 'winston';
-import {queueReportThumbnailGeneration} from '../../queues/report.queue';
+import {
+  cancelReportThumbnailGeneration,
+  queueReportThumbnailGeneration,
+} from '../../queues/report.queue';
 import {
   assertSafeId,
   assertServiceResult,
@@ -343,6 +346,7 @@ export class ReportController {
     );
     assertSafeId(id);
     assertServiceResult(await this.reportService.deleteById(userId, id));
+    void cancelReportThumbnailGeneration(id);
     try {
       await fs.unlink(`./public/report-thumbnail/${id}.png`);
     } catch (error) {

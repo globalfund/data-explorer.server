@@ -16,12 +16,8 @@ const getReportQueue = async () => {
   return (reportQueue ??= new Queue('report-queue', {connection}));
 };
 
-const queueThumbnail = async (
-  jobName: 'screenshot-report' | 'screenshot-asset',
-  jobId: string,
-  data: Record<string, unknown>,
-) => {
-  const queue = await getReportQueue();
+// A job that's already rendering can't be removed; it finishes on its own.
+const removePendingJob = async (queue: Queue, jobId: string) => {
   const existingJob = await queue.getJob(jobId);
 
   if (existingJob) {
@@ -31,6 +27,15 @@ const queueThumbnail = async (
       await existingJob.remove();
     }
   }
+};
+
+const queueThumbnail = async (
+  jobName: 'screenshot-report' | 'screenshot-asset',
+  jobId: string,
+  data: Record<string, unknown>,
+) => {
+  const queue = await getReportQueue();
+  await removePendingJob(queue, jobId);
 
   await queue.add(
     jobName,
@@ -65,6 +70,22 @@ const queueThumbnailSafely = async (
     console.error(`Failed to queue thumbnail job ${jobId}`, error);
   }
 };
+
+const cancelThumbnailSafely = async (jobId: string) => {
+  try {
+    await removePendingJob(await getReportQueue(), jobId);
+  } catch (error) {
+    console.error(`Failed to cancel thumbnail job ${jobId}`, error);
+  }
+};
+
+/** Drops a deleted report's pending thumbnail, so it isn't rendered anyway. */
+export const cancelReportThumbnailGeneration = (reportId: string) =>
+  cancelThumbnailSafely(`report-thumbnail-${reportId}`);
+
+/** Drops a deleted asset's pending thumbnail, so it isn't rendered anyway. */
+export const cancelAssetThumbnailGeneration = (assetId: string) =>
+  cancelThumbnailSafely(`asset-thumbnail-${assetId}`);
 
 export const queueReportThumbnailGeneration = (
   reportId: string,

@@ -11,6 +11,26 @@ const getAuthorization = (authorization?: string) => {
 };
 
 /**
+ * Whether a bearer token is a JWT that has expired. Thumbnail jobs carry the
+ * token of the save that queued them, and a job that waited for a worker can
+ * outlive it. A token that can't be read counts as unexpired: the API decides.
+ */
+export const isExpiredAuthorization = (
+  authorization?: string,
+  now = Date.now(),
+) => {
+  const token = getAuthorization(authorization)?.replace(/^Bearer\s+/i, '');
+  const payload = token?.split('.')[1];
+  if (!payload) return false;
+  try {
+    const {exp} = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    return typeof exp === 'number' && exp * 1000 <= now;
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Puppeteer does not share the user's browser storage or Auth0 session.
  * Forward the current request token only to the API origin used by the page.
  */
