@@ -90,7 +90,7 @@
     "nodemon": "^3.1.9",
     "puppeteer": "^24.42.0",
     "querystring": "^0.2.1",
-    "rb-core-middleware": "git+https://github.com/globalfund/rb-core.middleware.git#8d679b86ae80d0aecea224610d22ed769f302e52",
+    "rb-core-middleware": "git+https://github.com/globalfund/rb-core.middleware.git#d98371b52497fe98f5d22f5beb6c29ed7bd963b6",
     "rb-core.charts": "git+https://github.com/globalfund/rb-core.charts.git#3a103e73f69300c402a12d17a5132166aea649a8",
     "sharp": "^0.35.3",
     "tslib": "^2.8.1"

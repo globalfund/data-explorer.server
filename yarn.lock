@@ -5488,9 +5488,9 @@ raw-body@~2.5.3:
     iconv-lite "~0.4.24"
     unpipe "~1.0.0"
 
-"rb-core-middleware@git+https://github.com/globalfund/rb-core.middleware.git#8d679b86ae80d0aecea224610d22ed769f302e52":
+"rb-core-middleware@git+https://github.com/globalfund/rb-core.middleware.git#d98371b52497fe98f5d22f5beb6c29ed7bd963b6":
   version "0.0.1"
-  resolved "git+https://github.com/globalfund/rb-core.middleware.git#8d679b86ae80d0aecea224610d22ed769f302e52"
+  resolved "git+https://github.com/globalfund/rb-core.middleware.git#d98371b52497fe98f5d22f5beb6c29ed7bd963b6"
   dependencies:
     "@loopback/core" "^7.0.13"
     "@loopback/logging" "^0.13.14"
