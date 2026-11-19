@@ -3,6 +3,7 @@ import {get, param, Request, response, RestBindings} from '@loopback/rest';
 import axios, {AxiosResponse} from 'axios';
 import _ from 'lodash';
 import ResultsCyclesMappingFields from '../config/mapping/results/cycles.json';
+import ResultsGroupedByComponentMappingFields from '../config/mapping/results/groupedByComponent.json';
 import ResultsTableLocationMappingFields from '../config/mapping/results/location-table.json';
 import ResultsPolylineMappingFields from '../config/mapping/results/polyline.json';
 import ResultsStatsMappingFields from '../config/mapping/results/stats-home.json';
@@ -102,14 +103,90 @@ export class ResultsController {
                 groupedByComponent,
                 (componentData, component) => ({
                   name: component,
-                  _children: componentData.map((item: any) => ({
-                    name: _.get(item, ResultsTableMappingFields.name, ''),
-                    value: _.get(item, ResultsTableMappingFields.value, 0),
-                  })),
+                  _children: componentData
+                    .map((item: any) => ({
+                      name: _.get(item, ResultsTableMappingFields.name, ''),
+                      value: _.get(item, ResultsTableMappingFields.value, 0),
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name)),
                 }),
-              ),
+              ).sort((a, b) => a.name.localeCompare(b.name)),
             };
           }).reverse(),
+        };
+      })
+      .catch(handleDataApiError);
+  }
+
+  @get('/results/grouped-by-component/{cycle}')
+  @response(200)
+  async groupedByComponent(@param.path.string('cycle') cycle: string) {
+    const filterString = await filterProgrammaticIndicators(
+      {
+        ...this.req.query,
+        years: this.req.query.years
+          ? `${this.req.query.years},${cycle}`
+          : cycle,
+      },
+      ResultsGroupedByComponentMappingFields.urlParams,
+    );
+    const url = `${urls.PROGRAMMATIC_INDICATORS}/${filterString}`;
+
+    return axios
+      .get(url)
+      .then((resp: AxiosResponse) => {
+        const raw = ResultsGroupedByComponentMappingFields.dataPath
+          ? _.get(
+              resp.data,
+              ResultsGroupedByComponentMappingFields.dataPath,
+              [],
+            )
+          : resp.data;
+
+        const groupedByComponent = _.groupBy(
+          raw,
+          ResultsGroupedByComponentMappingFields.component,
+        );
+
+        return {
+          data: _.map(groupedByComponent, (componentData, component) => ({
+            name: component,
+            indicators: Object.keys(
+              _.groupBy(
+                componentData,
+                ResultsGroupedByComponentMappingFields.name,
+              ),
+            )
+              .map(name => {
+                const items = _.filter(
+                  componentData,
+                  item =>
+                    _.get(
+                      item,
+                      ResultsGroupedByComponentMappingFields.name,
+                      '',
+                    ) === name,
+                );
+                const value = _.sumBy(
+                  items,
+                  ResultsGroupedByComponentMappingFields.value,
+                );
+                const numOfCountries = Object.keys(
+                  _.groupBy(
+                    items,
+                    ResultsGroupedByComponentMappingFields.geography,
+                  ),
+                ).length;
+                return {name, value, numOfCountries};
+              })
+              .sort((a, b) => a.name.localeCompare(b.name)),
+            numOfCountries: Object.keys(
+              _.groupBy(
+                componentData,
+                ResultsGroupedByComponentMappingFields.geography,
+              ),
+            ).length,
+          })).sort((a, b) => a.name.localeCompare(b.name)),
         };
       })
       .catch(handleDataApiError);
@@ -131,14 +208,31 @@ export class ResultsController {
         const raw = ResultsStatsMappingFields.dataPath
           ? _.get(resp.data, ResultsStatsMappingFields.dataPath, [])
           : resp.data;
+
+        const groupedByIndicator = _.groupBy(
+          raw,
+          ResultsStatsMappingFields.name,
+        );
+
+        const data = _.map(groupedByIndicator, (indicatorData, indicator) => {
+          const totalValue = _.sumBy(
+            indicatorData,
+            ResultsStatsMappingFields.value,
+          );
+          return {
+            name: indicator,
+            value: totalValue,
+            geographies: Object.keys(
+              _.groupBy(indicatorData, ResultsStatsMappingFields.geography),
+            ).length,
+          };
+        });
+
         return {
-          stats: raw.map((item: any) => ({
-            label: `${_.get(
-              item,
-              ResultsStatsMappingFields.name,
-              '',
-            )} in ${cycle}`,
-            value: _.get(item, ResultsStatsMappingFields.value, 0),
+          stats: data.map((item: any) => ({
+            label: item.name,
+            value: item.value,
+            geographies: item.geographies,
           })),
         };
       })
@@ -151,13 +245,14 @@ export class ResultsController {
     @param.path.string('cycle') cycle: string,
     @param.path.string('countryCode') countryCode: string,
   ) {
+    const search = _.toString(this.req.query.q).replace(/'/g, "''");
     let filterString = ResultsTableLocationMappingFields.urlParams
       .replace('<countryCode>', countryCode)
       .replace('<cycle>', cycle)
       .replace(
         '<search>',
-        this.req.query.q
-          ? ` AND (contains(geography/code,'${this.req.query.q}') OR contains(activityArea/name,'${this.req.query.q}') OR contains(indicatorName,'${this.req.query.q}'))`
+        search
+          ? ` AND (contains(geography/code,'${search}') OR contains(activityArea/name,'${search}') OR contains(indicatorName,'${search}'))`
           : '',
       );
     const url = `${urls.PROGRAMMATIC_INDICATORS}/${filterString}`;

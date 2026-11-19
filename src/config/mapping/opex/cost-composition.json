@@ -1,0 +1,7 @@
+{
+  "dataPath": "value",
+  "actualAmount": "actual",
+  "year": "periodFrom",
+  "category": "financialCategory.name",
+  "urlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND not(financialCategory/name in (null, 'Total operating costs','Total Non-recurring costs','Workforce','Opex before non-recurring costs','Costs Secretariat and OIG','Extraordinary Costs'))<filterString>)/groupby((periodFrom,financialCategory/name),aggregate(actualAmount with sum as actual))"
+}

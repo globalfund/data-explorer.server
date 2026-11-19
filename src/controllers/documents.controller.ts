@@ -19,6 +19,11 @@ export class DocumentsController {
     );
     const url = `${urls.DOCUMENTS}${filterString}`;
 
+    if (url.indexOf('filter()') > -1) {
+      console.log('Invalid filter in URL:', url);
+      return {data: []};
+    }
+
     return axios
       .get(url)
       .then((resp: AxiosResponse) => {

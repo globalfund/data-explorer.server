@@ -53,10 +53,20 @@ export class EligibilityController {
           EligibilityStatsMapping.component,
         );
         return {
-          data: _.map(groupedByComponent, (value, key) => ({
-            name: key,
-            value: value.length,
-          })),
+          data: _.map(groupedByComponent, (value, key) => {
+            const itemGroupedByIncomeLevel = _.groupBy(
+              value,
+              EligibilityStatsMapping.incomeLevel,
+            );
+            return {
+              name: key,
+              value: value.length,
+              incomeLevelCounts: _.map(itemGroupedByIncomeLevel, (v, k) => ({
+                incomeLevel: k,
+                count: v.length,
+              })),
+            };
+          }),
         };
       })
       .catch(handleDataApiError);

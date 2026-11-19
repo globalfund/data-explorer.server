@@ -2,6 +2,7 @@
   "dataPath": "value",
   "cycle": "resultValueYear",
   "name": "indicatorName",
+  "geography": "geography.code",
   "value": "value",
-  "urlParams": "?$apply=filter((indicatorName eq 'People on antiretroviral therapy for HIV' OR indicatorName eq 'People with TB treated' OR indicatorName eq 'Insecticide-treated mosquito nets distributed')<filterString>)/groupby((indicatorName),aggregate(resultValueNumerator with sum as value))"
+  "urlParams": "?$apply=filter((indicatorName eq 'People on antiretroviral therapy for HIV' OR indicatorName eq 'People with TB treated' OR indicatorName eq 'Insecticide-treated mosquito nets distributed')<filterString>)/groupby((indicatorName,geography/code),aggregate(resultValueNumerator with sum as value))"
 }

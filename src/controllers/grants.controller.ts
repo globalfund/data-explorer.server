@@ -1,5 +1,12 @@
 import {inject} from '@loopback/core';
-import {get, param, Request, response, RestBindings} from '@loopback/rest';
+import {
+  get,
+  HttpErrors,
+  param,
+  Request,
+  response,
+  RestBindings,
+} from '@loopback/rest';
 import axios, {AxiosResponse} from 'axios';
 import _ from 'lodash';
 import {mapTransform} from 'map-transform';
@@ -553,14 +560,15 @@ export class GrantsController {
     @param.path.string('ip') ip: number,
   ) {
     const type = _.get(this.req.query, 'type', 'Impact indicator') as string;
+    const search = _.toString(this.req.query.q).replace(/'/g, "''");
     const url = `${
       urls.PROGRAMMATIC_INDICATORS
     }/${GrantTargetsResultsMapping.urlParams
       .replace('<grantIP>', `${id}P0${ip}`)
       .replace('<type>', type)}`.replace(
       '<search>',
-      this.req.query.q
-        ? ` AND (contains(activityArea/name,'${this.req.query.q}') OR contains(indicatorName,'${this.req.query.q}'))`
+      search
+        ? ` AND (contains(activityArea/name,'${search}') OR contains(indicatorName,'${search}'))`
         : '',
     );
 
@@ -787,5 +795,28 @@ export class GrantsController {
         };
       })
       .catch(handleDataApiError);
+  }
+
+  @get('/grant/{id}/valid')
+  @response(200)
+  async grantValid(@param.path.string('id') id: string) {
+    const url = `${urls.GRANTS}/${GrantMapping.urlParams.replace(
+      '<code>',
+      id,
+    )}`;
+
+    return axios
+      .get(url)
+      .then(resp => {
+        const valid = _.get(resp.data, `${GrantMapping.dataPath}.code`, null);
+        if (valid) {
+          return {data: {valid: true}};
+        } else {
+          throw new HttpErrors[403](`Grant with id ${id} not found`);
+        }
+      })
+      .catch(() => {
+        throw new HttpErrors[403](`Grant with id ${id} not found`);
+      });
   }
 }

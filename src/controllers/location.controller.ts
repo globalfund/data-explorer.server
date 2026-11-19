@@ -1,5 +1,12 @@
 import {inject} from '@loopback/core';
-import {get, param, Request, response, RestBindings} from '@loopback/rest';
+import {
+  get,
+  HttpErrors,
+  param,
+  Request,
+  response,
+  RestBindings,
+} from '@loopback/rest';
 import axios from 'axios';
 import _ from 'lodash';
 import CoordinatingMehanismContactsMapping from '../config/mapping/location/coordinating-mechanism-contacts.json';
@@ -499,5 +506,33 @@ export class LocationController {
         };
       })
       .catch(handleDataApiError);
+  }
+
+  @get('/location/{code}/valid')
+  @response(200)
+  async locationValid(@param.path.string('code') code: string) {
+    const decodedCode = code.replace(/\|/g, '%2F');
+    const url = `${urls.GEOGRAPHIES}/${LocationInfoMapping.urlParams.replace(
+      '<code>',
+      decodedCode,
+    )}`;
+
+    return axios
+      .get(url)
+      .then(resp => {
+        const valid = _.get(
+          resp.data,
+          `${LocationInfoMapping.dataPath}[0].id`,
+          null,
+        );
+        if (valid) {
+          return {data: {valid: true}};
+        } else {
+          throw new HttpErrors[403](`Location with code ${code} not found`);
+        }
+      })
+      .catch(() => {
+        throw new HttpErrors[403](`Location with code ${code} not found`);
+      });
   }
 }

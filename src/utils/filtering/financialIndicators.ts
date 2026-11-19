@@ -22,6 +22,8 @@ const MAPPING = {
   cycle: 'periodCovered',
   year: 'implementationPeriod/periodFrom',
   yearTo: 'implementationPeriod/periodTo',
+  periodFrom: 'periodFrom',
+  periodTo: 'periodTo',
   grantIP: 'implementationPeriod/code',
   status: 'implementationPeriod/status/statusName',
   search: {
@@ -190,6 +192,34 @@ export async function filterFinancialIndicators(
     }(${yearsTo.join(filtering.multi_param_separator)})`;
   }
 
+  const periodsFrom = _.filter(
+    [
+      ..._.get(params, 'periodsFrom', '').split(','),
+      ..._.get(params, 'cyclesFrom', '').split(','),
+    ],
+    (o: string) => o.length > 0,
+  ).map(
+    (periodFrom: string) =>
+      `'${periodFrom.replace(/ /g, '').replace(' - ', '')}'`,
+  );
+  if (periodsFrom.length > 0) {
+    str += `${str.length > 0 ? ' AND ' : ''}${MAPPING.periodFrom}${
+      filtering.in
+    }(${periodsFrom.join(filtering.multi_param_separator)})`;
+  }
+
+  const periodsTo = _.filter(
+    _.get(params, 'periodsTo', '').split(','),
+    (o: string) => o.length > 0,
+  ).map(
+    (periodTo: string) => `'${periodTo.replace(/ /g, '').replace(' - ', '')}'`,
+  );
+  if (periodsTo.length > 0) {
+    str += `${str.length > 0 ? ' AND ' : ''}${MAPPING.periodTo}${
+      filtering.in
+    }(${periodsTo.join(filtering.multi_param_separator)})`;
+  }
+
   const grantIPs = _.filter(
     _.get(params, 'grantIP', '').split(','),
     (o: string) => o.length > 0,
@@ -234,7 +264,7 @@ export async function filterFinancialIndicators(
   if (search.length > 0) {
     str += `${str.length > 0 ? ' AND ' : ''}${mappingSearch.replace(
       /<value>/g,
-      `'${search}'`,
+      `'${_.toString(search).replace(/'/g, "''")}'`,
     )}`;
   }
 

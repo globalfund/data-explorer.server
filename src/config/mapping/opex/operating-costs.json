@@ -1,0 +1,12 @@
+{
+  "dataPath": "value",
+  "actualAmount": "actual",
+  "plannedAmount": "planned",
+  "year": "periodFrom",
+  "actualsLineTotalUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name eq 'Total operating costs'<filterString>)/groupby((periodFrom),aggregate(actualAmount with sum as actual))",
+  "actualsLineWorkforceUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name in ('Individual / Temp Consultants','Staff')<filterString>)/groupby((periodFrom),aggregate(actualAmount with sum as actual))",
+  "actualsLineNonWorkforceUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name in ('LFA Fees','CCM Funding','Professional fees','Office Infrastructure','Travel','Meetings','Communications','Board Constituency','Depreciation','External Co-Funding')<filterString>)/groupby((periodFrom),aggregate(actualAmount with sum as actual))",
+  "budgetsLineTotalUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name eq 'Total operating costs'<filterString>)/groupby((periodFrom),aggregate(plannedAmount with sum as planned))",
+  "budgetsLineWorkforceUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name in ('Individual / Temp Consultants','Staff')<filterString>)/groupby((periodFrom),aggregate(plannedAmount with sum as planned))",
+  "budgetsLineNonWorkforceUrlParams": "?$apply=filter(financialDataSet eq 'OPEX_ReferenceRate' AND financialCategory/name in ('LFA Fees','CCM Funding','Professional fees','Office Infrastructure','Travel','Meetings','Communications','Board Constituency','Depreciation','External Co-Funding')<filterString>)/groupby((periodFrom),aggregate(plannedAmount with sum as planned))"
+}
